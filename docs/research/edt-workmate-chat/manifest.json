@@ -1,0 +1,166 @@
+{
+  "createdAt": "2026-10-08T19:11:36.593506+00:00",
+  "description": "Handoff research package in Nicodimych/EDT-MCP fork; excludes manifest itself; no plugin installation",
+  "files": [
+    {
+      "path": "API_PROPOSAL.md",
+      "bytes": 12097,
+      "sha256": "cccb0059cd9f8f3ba0665bbe1acd037d176c6863c31140739c9f18b437a0569c"
+    },
+    {
+      "path": "CLI_REVIEW.md",
+      "bytes": 10038,
+      "sha256": "6e791bb9b173fdf85b2f1b3570517733a39b115bbd729646bd3a105d52fa8e99"
+    },
+    {
+      "path": "evidence/api-signatures.txt",
+      "bytes": 23010,
+      "sha256": "ffb4ae3f481b421e7c59299c39757d96a63fe236978ebb2896c69edfcb3b9fbc"
+    },
+    {
+      "path": "evidence/bootstrap-validation.json",
+      "bytes": 1496,
+      "sha256": "4866cafb0807f80f96db7f07fa37823a7586da6e24f9ef756377d5d93f0c70e3"
+    },
+    {
+      "path": "evidence/cli-launch-check.json",
+      "bytes": 1722,
+      "sha256": "44bb510c89a5dab52123ef008ed8c89257fdec8ef0e4dc04d5b6aa4ea7c448aa"
+    },
+    {
+      "path": "evidence/cli-runtime-check.json",
+      "bytes": 2832,
+      "sha256": "06639a0ba65017c4572e278d3af8beacb5f01171c408d14a3b46ed972477fd66"
+    },
+    {
+      "path": "evidence/cli-static-evidence.txt",
+      "bytes": 10957,
+      "sha256": "a273897d60346e562d15b422186a23e6ebf403cd2ee84d4a9c375af329ef1e52"
+    },
+    {
+      "path": "evidence/custom-check-validation.json",
+      "bytes": 1580,
+      "sha256": "a98dff63fdb92859f2b6779833a2c009851f74da14b42dfa7d0da3a78217123f"
+    },
+    {
+      "path": "evidence/custom-setup-validation.json",
+      "bytes": 1480,
+      "sha256": "205a377f95f211fbff177a546063e322a2e7610c96ee45820d9e6fd082e88485"
+    },
+    {
+      "path": "evidence/poll-validation.json",
+      "bytes": 1431,
+      "sha256": "c303abd58bab87621c0713c874e3b0a8ab9fe82d3f283f35e63efbcc359e7d37"
+    },
+    {
+      "path": "evidence/projects.json",
+      "bytes": 1122,
+      "sha256": "3f0bb52b7c9ede7f90d9defcf68e2d83e86c6479e4e2d423e4ee260a8a82b8f2"
+    },
+    {
+      "path": "evidence/README.md",
+      "bytes": 2903,
+      "sha256": "1b4e838994e571d07b0418b7d0d7e2cf23dc04db7f19ec6394e0faae302cf3c2"
+    },
+    {
+      "path": "evidence/selected-tool-schemas.json",
+      "bytes": 4966,
+      "sha256": "c7034cd786560493769acbce4fa16e9afe585ebef6deaa28f35b06b799a60e65"
+    },
+    {
+      "path": "evidence/server-status.json",
+      "bytes": 1102,
+      "sha256": "392bb8a23b5e9a65fe9c937602d3d9dda0d8bacd9603858143fb0afce1169329"
+    },
+    {
+      "path": "evidence/validation.md",
+      "bytes": 3623,
+      "sha256": "54d1d5a663e54efadedc024d249a79690cac303f4fe14899aca173d91dd8890d"
+    },
+    {
+      "path": "examples/00-bootstrap.jsh",
+      "bytes": 1898,
+      "sha256": "24e4db8ebf428e3329de439ec589db48bf2a40fad5b75f4c5ee7e4a8c7df7d93"
+    },
+    {
+      "path": "examples/10-start-raw.jsh",
+      "bytes": 354,
+      "sha256": "cf3dbf91680cfbb97dab43535ffca97279f13bb82ed2ef94c3b852bda627c59c"
+    },
+    {
+      "path": "examples/11-poll.jsh",
+      "bytes": 1034,
+      "sha256": "67c480c713d1d91741e2d86aa5bb013278de0fdb92413a493262241200f18d0e"
+    },
+    {
+      "path": "examples/12-followup.jsh",
+      "bytes": 455,
+      "sha256": "e6e5b1114f593f0182623795b6e36ecbb727278a4e712c62eb786ba52d8293fc"
+    },
+    {
+      "path": "examples/20-custom-setup.jsh",
+      "bytes": 4188,
+      "sha256": "24cab464663f081bf4a9393cb29d19f31cc2d5e27a643e87068b642d3516e948"
+    },
+    {
+      "path": "examples/21-custom-send.jsh",
+      "bytes": 507,
+      "sha256": "744325c89445c449f37b0534162196283b007cb9744e4ad734e1510a9dba9ac2"
+    },
+    {
+      "path": "examples/22-custom-check.jsh",
+      "bytes": 484,
+      "sha256": "a67bbade7feb6e26eda8534e97d7c384233e8cf77cca43e18e7bf54d75f20b70"
+    },
+    {
+      "path": "examples/90-cancel.jsh",
+      "bytes": 167,
+      "sha256": "f326440ffd0496f71ca16c42c0c77755c452efcc7568e7850a3dfa788f57171c"
+    },
+    {
+      "path": "examples/mcp_probe.py",
+      "bytes": 7354,
+      "sha256": "f1c0838d4d50657ca45575cc07a3bb8924e102382eb3e935a1d766a6394f44f3"
+    },
+    {
+      "path": "examples/server-tools-prompts.md",
+      "bytes": 2144,
+      "sha256": "1d7cede2b0026bd844aae8a2e50c51c97724e9fab7ba5daa26bfa13ca82b8a8a"
+    },
+    {
+      "path": "EXPERIMENTS.md",
+      "bytes": 14451,
+      "sha256": "563cf0ef4ae45e1adb486df408f613cdd49b5cd1fca31f20afb6bcc8e765f388"
+    },
+    {
+      "path": "FORK_PLAN.md",
+      "bytes": 12280,
+      "sha256": "a02cf02a606a741c022d056f2eb7656c058165d6fcb78bd67c8fddb80acd9204"
+    },
+    {
+      "path": "README.md",
+      "bytes": 7862,
+      "sha256": "009c2a85056be1e1493df7c81d6d1444c34b1b984150c84f3a768f3181b0fe15"
+    },
+    {
+      "path": "REPRODUCE.md",
+      "bytes": 8026,
+      "sha256": "90e72d22930d61f7a683b570318232362deee0a3362e0e49c58fd2d8c5655fe4"
+    },
+    {
+      "path": "SOURCES.md",
+      "bytes": 6817,
+      "sha256": "1b1ca4b2d469a2e669adceda6d129656a2599f24a3b3c18bfb483c3dbdbc9873"
+    },
+    {
+      "path": "TECHNICAL_FINDINGS.md",
+      "bytes": 17429,
+      "sha256": "bcd99bcabde7d0d25b15110a1b11db236a6bcac54d25f0bc7462ed30290ac53f"
+    },
+    {
+      "path": "UPSTREAM_REQUEST.md",
+      "bytes": 11579,
+      "sha256": "007ac641f1c5fcc65bef141ad9c779c42cc8a3a1cfbb7b7be3ff40c3d444414c"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "capturedAt": "2026-10-08T17:35:36.693Z",
+  "provenance": "fresh get_job_status for packaged JShell example after EDT restart; no model request",
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 7,
+    "result": {
+      "content": [
+        {
+          "type": "resource",
+          "resource": {
+            "uri": "embedded://get_job_status.md",
+            "mimeType": "text/markdown",
+            "text": "# Background job: done\n\n| Field | Value |\n| --- | --- |\n| jobId | a8580526-a3c1-4bca-a175-1814c4d5123e |\n| owningTool | ask_workmate |\n| status | done |\n| elapsed | 1.644 s |\n| startedAt | 2026-10-08T17:34:59.889Z |\n| completedAt | 2026-10-08T17:35:01.534Z |\n\n## Progress\n\n- `2026-10-08T17:34:59.889Z` — Accepted the direct Workmate tool call.\n- `2026-10-08T17:34:59.891Z` — Located the 1C:Workmate plugin.\n- `2026-10-08T17:34:59.891Z` — Verified that Workmate is enabled and holds an access key.\n- `2026-10-08T17:34:59.892Z` — Invoking Workmate tool 'JShell' directly.\n- `2026-10-08T17:35:01.534Z` — Workmate tool 'JShell' returned.\n\n## Answer\n\n{\n  \"repl_session_id\": \"c3c18496-327d-440b-a177-869d427a8d7c\",\n  \"available_bindings\": [\n    \"handlerService\",\n    \"workspaceRoot\",\n    \"workbench\",\n    \"commandService\"\n  ],\n  \"std_out\": \"isolated registry size=27; custom calls=0\\r\\n\",\n  \"std_err\": \"\",\n  \"compilation_errors\": [],\n  \"runtime_errors\": []\n}"
+          }
+        }
+      ]
+    }
+  }
+}

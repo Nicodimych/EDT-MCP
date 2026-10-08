@@ -1,0 +1,239 @@
+Captured 2026-10-08 from installed com.e1c.edt.ai_1.0.8.v202609241142.jar; javap -p, signatures only. Not published Java source.
+SHA256: F822FD19F6102D71FEE69097C5902270A26920463467C2E7A19E6F5A3CB430AD
+
+Compiled from "ConversationFacade.java"
+public class com.e1c.edt.ai.ConversationFacade implements com.e1c.edt.ai.IConversationFacade {
+  private static final int MAX_SKILL_COMPLETION_CONTINUES;
+  private static final int MAX_SKILL_COMPLETION_RESTARTS;
+  private final com.e1c.edt.ai.assistent.IConversations conversations;
+  private final com.e1c.edt.ai.IJson json;
+  private final com.e1c.edt.ai.IMcpTools mcpTools;
+  private final com.e1c.edt.ai.ISettings settings;
+  private final com.e1c.edt.ai.ILog log;
+  public com.e1c.edt.ai.ConversationFacade(com.e1c.edt.ai.assistent.IConversations, com.e1c.edt.ai.IJson, com.e1c.edt.ai.IMcpTools, com.e1c.edt.ai.ISettings, com.e1c.edt.ai.ILog);
+  public java.util.concurrent.CompletableFuture<com.e1c.edt.ai.assistent.SendMessageResult> sendAsync(com.e1c.edt.ai.assistent.SendUserMessageRequest, com.e1c.edt.ai.ICancellationToken, com.e1c.edt.ai.IConversationProgressListener);
+  public static java.lang.String withCompletionProtocol(java.lang.String, com.e1c.edt.ai.assistent.model.SkillCompletionPolicy);
+  private java.util.concurrent.CompletableFuture<com.e1c.edt.ai.assistent.SendMessageResult> enforceCompletionPolicy(com.e1c.edt.ai.assistent.SendUserMessageRequest, java.lang.String, com.e1c.edt.ai.assistent.SendMessageResult, com.e1c.edt.ai.ICancellationToken, com.e1c.edt.ai.IConversationProgressListener, int, int, int);
+  private java.util.concurrent.CompletableFuture<com.e1c.edt.ai.assistent.SendMessageResult> restartCompletionConversation(com.e1c.edt.ai.assistent.SendUserMessageRequest, com.e1c.edt.ai.ICancellationToken, com.e1c.edt.ai.IConversationProgressListener, int, int);
+  private boolean isJsonObject(java.lang.String);
+  public static java.lang.String stripCompletionMarker(java.lang.String, java.lang.String);
+  private java.util.concurrent.CompletableFuture<java.lang.String> createConversationAsync(com.e1c.edt.ai.assistent.SendUserMessageRequest, com.e1c.edt.ai.ICancellationToken);
+  private com.e1c.edt.ai.assistent.model.ConversationAskRequest createAskRequest(java.lang.String, java.lang.String, java.util.Set<java.lang.String>);
+  private java.util.List<com.e1c.edt.ai.assistent.model.ToolDefinition> getToolsDefinitions(java.util.Set<java.lang.String>);
+  private void appendExtraTools(java.util.List<com.e1c.edt.ai.assistent.model.ToolDefinition>);
+  private void reportProgress(com.e1c.edt.ai.IConversationProgressListener, int, int);
+  private java.util.concurrent.CompletableFuture<com.e1c.edt.ai.assistent.SendMessageResult> collectAssistantResult(org.eclipse.core.resources.IProject, java.lang.String, com.e1c.edt.ai.assistent.model.ConversationAskRequest, com.e1c.edt.ai.ICancellationToken, com.e1c.edt.ai.IConversationProgressListener);
+  private <T> java.util.concurrent.CompletableFuture<T> failedFuture(java.lang.Throwable);
+  private java.util.concurrent.CompletionStage lambda$0(com.e1c.edt.ai.assistent.SendUserMessageRequest, com.e1c.edt.ai.ICancellationToken, com.e1c.edt.ai.IConversationProgressListener, boolean, java.lang.String);
+  private java.util.concurrent.CompletionStage lambda$2(com.e1c.edt.ai.assistent.SendUserMessageRequest, java.lang.String, com.e1c.edt.ai.ICancellationToken, com.e1c.edt.ai.IConversationProgressListener, int, int, int, com.e1c.edt.ai.assistent.SendMessageResult);
+  private java.util.concurrent.CompletionStage lambda$3(com.e1c.edt.ai.assistent.SendUserMessageRequest, com.e1c.edt.ai.ICancellationToken, com.e1c.edt.ai.IConversationProgressListener, int, int, java.lang.String);
+  private java.util.concurrent.CompletionStage lambda$6(java.util.Optional);
+  private static com.e1c.edt.ai.assistent.model.McpToolCallFunction lambda$7(com.e1c.edt.ai.assistent.model.McpToolCallSpecification);
+  private static java.lang.String lambda$8(com.e1c.edt.ai.assistent.model.ToolDefinition);
+  private static java.lang.String lambda$10(com.e1c.edt.ai.assistent.model.ToolDefinition);
+  private java.util.concurrent.CompletionStage lambda$1(com.e1c.edt.ai.assistent.SendUserMessageRequest, java.lang.String, com.e1c.edt.ai.ICancellationToken, com.e1c.edt.ai.IConversationProgressListener, com.e1c.edt.ai.assistent.SendMessageResult);
+  private java.util.concurrent.CompletionStage lambda$4(com.e1c.edt.ai.assistent.SendUserMessageRequest, java.lang.String, com.e1c.edt.ai.ICancellationToken, com.e1c.edt.ai.IConversationProgressListener, int, int, com.e1c.edt.ai.assistent.SendMessageResult);
+}
+Compiled from "IConversationFacade.java"
+public interface com.e1c.edt.ai.IConversationFacade {
+  public default java.util.concurrent.CompletableFuture<com.e1c.edt.ai.assistent.SendMessageResult> sendAsync(com.e1c.edt.ai.assistent.SendUserMessageRequest, com.e1c.edt.ai.ICancellationToken);
+  public abstract java.util.concurrent.CompletableFuture<com.e1c.edt.ai.assistent.SendMessageResult> sendAsync(com.e1c.edt.ai.assistent.SendUserMessageRequest, com.e1c.edt.ai.ICancellationToken, com.e1c.edt.ai.IConversationProgressListener);
+}
+Compiled from "SendUserMessageRequest.java"
+public class com.e1c.edt.ai.assistent.SendUserMessageRequest {
+  private final org.eclipse.core.resources.IProject project;
+  private final java.lang.String message;
+  private final com.e1c.edt.ai.assistent.ConversationSession conversationSession;
+  private final boolean forceNewConversation;
+  private final java.lang.String skillName;
+  private final java.lang.Boolean chat;
+  private final java.lang.Integer maxToolRounds;
+  private final java.util.Set<java.lang.String> allowedTools;
+  private final com.e1c.edt.ai.assistent.model.SkillCompletionPolicy completionPolicy;
+  public com.e1c.edt.ai.assistent.SendUserMessageRequest(org.eclipse.core.resources.IProject, java.lang.String, com.e1c.edt.ai.assistent.ConversationSession, boolean);
+  public com.e1c.edt.ai.assistent.SendUserMessageRequest(org.eclipse.core.resources.IProject, java.lang.String, com.e1c.edt.ai.assistent.ConversationSession, boolean, java.lang.String, java.lang.Boolean, java.lang.Integer);
+  public com.e1c.edt.ai.assistent.SendUserMessageRequest(org.eclipse.core.resources.IProject, java.lang.String, com.e1c.edt.ai.assistent.ConversationSession, boolean, java.lang.String, java.lang.Boolean, java.lang.Integer, java.util.Set<java.lang.String>);
+  public com.e1c.edt.ai.assistent.SendUserMessageRequest(org.eclipse.core.resources.IProject, java.lang.String, com.e1c.edt.ai.assistent.ConversationSession, boolean, java.lang.String, java.lang.Boolean, java.lang.Integer, java.util.Set<java.lang.String>, com.e1c.edt.ai.assistent.model.SkillCompletionPolicy);
+  public java.lang.String getSkillName();
+  public java.lang.Boolean getChat();
+  public java.lang.Integer getMaxToolRounds();
+  public java.util.Optional<java.util.Set<java.lang.String>> getAllowedTools();
+  public java.util.Optional<com.e1c.edt.ai.assistent.model.SkillCompletionPolicy> getCompletionPolicy();
+  public org.eclipse.core.resources.IProject getProject();
+  public java.lang.String getMessage();
+  public com.e1c.edt.ai.assistent.ConversationSession getConversationSession();
+  public boolean isForceNewConversation();
+}
+Compiled from "SendMessageResult.java"
+public class com.e1c.edt.ai.assistent.SendMessageResult {
+  private final java.lang.String text;
+  private final com.e1c.edt.ai.assistent.ConversationSession session;
+  private final java.lang.String reasoning;
+  private final int assistantMessageCount;
+  public com.e1c.edt.ai.assistent.SendMessageResult(java.lang.String, com.e1c.edt.ai.assistent.ConversationSession);
+  public com.e1c.edt.ai.assistent.SendMessageResult(java.lang.String, com.e1c.edt.ai.assistent.ConversationSession, java.lang.String, int);
+  public java.lang.String getText();
+  public com.e1c.edt.ai.assistent.ConversationSession getSession();
+  public java.lang.String getReasoning();
+  public int getAssistantMessageCount();
+}
+Compiled from "ConversationSession.java"
+public class com.e1c.edt.ai.assistent.ConversationSession {
+  private final java.lang.String conversationId;
+  private final java.lang.String replyToMessageUuid;
+  public com.e1c.edt.ai.assistent.ConversationSession(java.lang.String, java.lang.String);
+  public java.lang.String getConversationId();
+  public java.lang.String getReplyToMessageUuid();
+  public boolean isNewConversation();
+}
+Compiled from "IMcpTool.java"
+public interface com.e1c.edt.ai.IMcpTool {
+  public default boolean isExperimental();
+  public abstract com.e1c.edt.ai.assistent.model.McpToolCallSpecification getSpecification();
+  public abstract java.util.concurrent.CompletableFuture<com.e1c.edt.ai.ToolCallMessage> call(com.e1c.edt.ai.assistent.model.McpToolCall, com.e1c.edt.ai.ICancellationToken);
+  public default java.lang.String getExecutionSequenceKey(com.e1c.edt.ai.assistent.model.McpToolCall);
+  public default java.util.concurrent.CompletableFuture<java.lang.Boolean> getIsAvailable();
+}
+Compiled from "IMcpTools.java"
+public interface com.e1c.edt.ai.IMcpTools {
+  public abstract java.util.concurrent.CompletableFuture<java.util.List<com.e1c.edt.ai.assistent.model.McpToolCallSpecification>> getSpecifications();
+  public abstract java.util.concurrent.CompletableFuture<com.e1c.edt.ai.McpCallToolsResult> callTools(com.e1c.edt.ai.assistent.model.McpToolCalls, com.e1c.edt.ai.ICancellationToken);
+}
+Compiled from "McpTools.java"
+public class com.e1c.edt.ai.McpTools implements com.e1c.edt.ai.IMcpTools {
+  private static final int MAX_CONTENT_LINES;
+  private static final java.util.regex.Pattern LINE_SEPARATOR;
+  private final com.e1c.edt.ai.ILog log;
+  private final com.e1c.edt.ai.ISettings settings;
+  private final java.util.Map<java.lang.String, com.e1c.edt.ai.IMcpTool> tools;
+  private static final java.util.Set<java.lang.String> SERVER_TOOLS;
+  private final java.util.List<com.e1c.edt.ai.assistent.model.McpToolCallSpecification> specs;
+  private final com.e1c.edt.ai.IMcpToolsCallMessageFactory messageFactory;
+  private final com.e1c.edt.ai.IJson json;
+  private final com.e1c.edt.ai.IDevToolCallRecorder devRecorder;
+  private final com.google.common.cache.Cache<java.lang.String, java.util.List<com.e1c.edt.ai.assistent.model.McpToolCallSpecification>> specsCache;
+  private static volatile int[] $SWITCH_TABLE$com$e1c$edt$ai$ToolErrorType;
+  static {};
+  public com.e1c.edt.ai.McpTools(com.e1c.edt.ai.ILog, com.e1c.edt.ai.ISettings, java.util.Set<com.e1c.edt.ai.IMcpTool>, com.e1c.edt.ai.IMcpToolsCallMessageFactory, com.e1c.edt.ai.IJson, com.e1c.edt.ai.IDevToolCallRecorder);
+  public java.util.concurrent.CompletableFuture<java.util.List<com.e1c.edt.ai.assistent.model.McpToolCallSpecification>> getSpecifications();
+  public java.util.concurrent.CompletableFuture<com.e1c.edt.ai.McpCallToolsResult> callTools(com.e1c.edt.ai.assistent.model.McpToolCalls, com.e1c.edt.ai.ICancellationToken);
+  private java.util.concurrent.CompletableFuture<com.e1c.edt.ai.ToolCallMessage> callTool(com.e1c.edt.ai.IMcpTool, com.e1c.edt.ai.assistent.model.McpToolCall, java.lang.String, com.e1c.edt.ai.ICancellationToken);
+  private static void setDuration(com.e1c.edt.ai.ToolCallMessage, long);
+  private static java.lang.Throwable unwrapCompletion(java.lang.Throwable);
+  private static java.lang.String reportedFailure(com.e1c.edt.ai.ToolCallMessage);
+  private void logToolFailure(com.e1c.edt.ai.assistent.model.McpToolCall, java.lang.Throwable);
+  private static java.lang.String errorDescription(java.lang.Throwable);
+  private com.e1c.edt.ai.ToolCallMessage createErrorMessage(com.e1c.edt.ai.IMcpTool, com.e1c.edt.ai.assistent.model.McpToolCall, java.lang.String, java.lang.Throwable);
+  private static com.e1c.edt.ai.ToolCallMessage failed(com.e1c.edt.ai.ToolCallMessage);
+  private boolean exceedsMaxContentLines(java.lang.String);
+  private boolean isLogLevel(com.e1c.edt.ai.assistent.model.Verbosity);
+  static int[] $SWITCH_TABLE$com$e1c$edt$ai$ToolErrorType();
+  private static boolean lambda$0(com.e1c.edt.ai.IMcpTool);
+  private java.lang.Boolean lambda$1(com.e1c.edt.ai.IMcpTool, java.lang.Boolean, java.lang.Throwable);
+  private static com.e1c.edt.ai.McpTools$AvailableTool lambda$4(com.e1c.edt.ai.IMcpTool, java.lang.Boolean);
+  private java.util.List lambda$5(java.util.ArrayList, java.lang.Void);
+  private static java.lang.Object lambda$6(com.e1c.edt.ai.ToolCallMessage, java.lang.Throwable);
+  private java.util.concurrent.CompletionStage lambda$7(com.e1c.edt.ai.IMcpTool, com.e1c.edt.ai.assistent.model.McpToolCall, java.lang.String, com.e1c.edt.ai.ICancellationToken, java.lang.Object);
+  private com.e1c.edt.ai.McpCallToolsResult lambda$8(java.util.ArrayList, com.e1c.edt.ai.assistent.model.McpToolCalls, java.lang.Void);
+  private static void lambda$10(java.util.concurrent.CompletableFuture);
+  private java.lang.String lambda$11(java.lang.String, com.e1c.edt.ai.assistent.model.McpToolCall);
+  private com.e1c.edt.ai.ToolCallMessage lambda$12(long, java.lang.String, com.e1c.edt.ai.assistent.model.McpToolCall, com.e1c.edt.ai.ToolCallMessage);
+  private com.e1c.edt.ai.ToolCallMessage lambda$14(java.lang.String, com.e1c.edt.ai.assistent.model.McpToolCall, com.e1c.edt.ai.IMcpTool, long, java.lang.Throwable);
+  private static java.lang.String lambda$16(java.lang.String, java.lang.Exception);
+  private java.lang.String lambda$17(java.lang.Throwable, com.e1c.edt.ai.assistent.model.McpToolCall);
+  private java.lang.String lambda$18(java.lang.Throwable, com.e1c.edt.ai.assistent.model.McpToolCall);
+  private static java.lang.String lambda$2(java.lang.Throwable);
+  private static java.lang.String lambda$3(java.lang.Throwable);
+  private java.lang.String lambda$13(java.lang.String, com.e1c.edt.ai.ToolCallMessage);
+  private static java.lang.String lambda$15(java.lang.String, java.lang.Throwable);
+}
+Compiled from "McpCallToolsResult.java"
+public class com.e1c.edt.ai.McpCallToolsResult {
+  public java.util.List<com.e1c.edt.ai.ToolCallMessage> messages;
+  public com.e1c.edt.ai.assistent.model.McpToolCalls unknownCalls;
+  public com.e1c.edt.ai.McpCallToolsResult();
+}
+Compiled from "ToolCallMessage.java"
+public class com.e1c.edt.ai.ToolCallMessage {
+  public java.lang.String role;
+  public java.lang.String content;
+  public long durationMs;
+  public java.lang.String tool_call_id;
+  public java.lang.String status;
+  public com.e1c.edt.ai.ToolCallMessageDetails details;
+  public transient com.e1c.edt.ai.assistent.model.McpToolCallSpecification specification;
+  public transient com.e1c.edt.ai.assistent.model.McpToolCall call;
+  public com.e1c.edt.ai.ToolCallMessage();
+}
+Compiled from "IConversationProgressListener.java"
+public interface com.e1c.edt.ai.IConversationProgressListener {
+  public abstract void onProgress(int, int);
+  public default void onToolCallStart(java.util.List<java.lang.String>);
+  public default void onToolCallEnd(java.util.List<java.lang.String>);
+}
+Compiled from "Conversations.java"
+public class com.e1c.edt.ai.assistent.Conversations implements com.e1c.edt.ai.assistent.IConversations {
+  private static final int MAX_TOOL_ROUNDS;
+  private final com.e1c.edt.ai.assistent.IHttpLog log;
+  private final com.e1c.edt.ai.ISettings settings;
+  private final com.e1c.edt.ai.assistent.IRequestBuilder requestBuilder;
+  private final com.e1c.edt.ai.assistent.IHttpClientBuilder clientBuilder;
+  private final com.e1c.edt.ai.IJson json;
+  private final com.e1c.edt.ai.assistent.ISessionService sessionService;
+  private final com.e1c.edt.ai.IMcpTools mcpTools;
+  private final com.e1c.edt.ai.ILog logDebug;
+  private static final java.util.regex.Pattern INVOKE_PATTERN;
+  private static final java.util.regex.Pattern PARAMETER_PATTERN;
+  private static final java.util.regex.Pattern INTEGER_PATTERN;
+  private static final java.util.regex.Pattern DECIMAL_PATTERN;
+  static {};
+  public com.e1c.edt.ai.assistent.Conversations(com.e1c.edt.ai.assistent.IHttpLog, com.e1c.edt.ai.ISettings, com.e1c.edt.ai.assistent.IRequestBuilder, com.e1c.edt.ai.assistent.IHttpClientBuilder, com.e1c.edt.ai.IJson, com.e1c.edt.ai.assistent.ISessionService, com.e1c.edt.ai.IMcpTools, com.e1c.edt.ai.ILog);
+  public java.util.concurrent.CompletableFuture<java.util.Optional<com.e1c.edt.ai.assistent.model.ConversationResponse>> createConversationAsync(org.eclipse.core.resources.IProject, com.e1c.edt.ai.assistent.model.ConversationRequest, com.e1c.edt.ai.ICancellationToken);
+  public com.e1c.edt.ai.IObservable<com.e1c.edt.ai.assistent.model.ConversationAskResponse> createAskSource(org.eclipse.core.resources.IProject, java.lang.String, com.e1c.edt.ai.assistent.model.ConversationAskRequest, com.e1c.edt.ai.ICancellationToken, com.e1c.edt.ai.IConversationProgressListener);
+  private void askWithTools(com.e1c.edt.ai.assistent.model.Session, java.lang.String, com.e1c.edt.ai.assistent.model.ConversationAskRequest, com.e1c.edt.ai.IObserver<com.e1c.edt.ai.assistent.model.ConversationAskResponse>, com.e1c.edt.ai.ICancellationToken, int, com.e1c.edt.ai.IConversationProgressListener);
+  private void handleToolCalls(com.e1c.edt.ai.assistent.model.Session, java.lang.String, com.e1c.edt.ai.assistent.model.ConversationAskResponse, java.util.ArrayList<com.e1c.edt.ai.assistent.model.McpToolCall>, com.e1c.edt.ai.IObserver<com.e1c.edt.ai.assistent.model.ConversationAskResponse>, com.e1c.edt.ai.ICancellationToken, int, int, com.e1c.edt.ai.IConversationProgressListener);
+  private void reportToolCallStart(com.e1c.edt.ai.IConversationProgressListener, java.util.List<java.lang.String>);
+  private void reportToolCallEnd(com.e1c.edt.ai.IConversationProgressListener, java.util.List<java.lang.String>);
+  private com.e1c.edt.ai.assistent.model.ConversationAskRequest createToolRequest(java.lang.String, com.e1c.edt.ai.McpCallToolsResult);
+  private com.google.gson.JsonElement jsonToElement(java.lang.Object);
+  private java.util.ArrayList<com.e1c.edt.ai.assistent.model.McpToolCall> extractToolCalls(com.e1c.edt.ai.assistent.model.ConversationAskResponse, java.lang.String);
+  private java.util.ArrayList<com.e1c.edt.ai.assistent.model.McpToolCall> parseTextToolCalls(java.lang.String);
+  private static java.lang.String stripModelTokens(java.lang.String);
+  private static com.google.gson.JsonElement toJsonValue(java.lang.String);
+  private java.util.concurrent.CompletableFuture<com.e1c.edt.ai.assistent.Conversations$AskRoundResult> askSingleRound(com.e1c.edt.ai.assistent.model.Session, java.lang.String, com.e1c.edt.ai.assistent.model.ConversationAskRequest, com.e1c.edt.ai.IObserver<com.e1c.edt.ai.assistent.model.ConversationAskResponse>, com.e1c.edt.ai.ICancellationToken);
+  private java.lang.String serializeWithNull(com.e1c.edt.ai.assistent.model.ConversationAskRequest);
+  private java.util.Optional<com.e1c.edt.ai.assistent.model.ConversationResponse> createConversation(com.e1c.edt.ai.assistent.model.Session, com.e1c.edt.ai.assistent.model.ConversationRequest, com.e1c.edt.ai.ICancellationToken) throws java.lang.InterruptedException, java.util.concurrent.ExecutionException;
+  private boolean isCancellationException(java.lang.Throwable);
+  private com.e1c.edt.ai.assistent.Conversations$AskRoundResult processStream(java.util.stream.Stream<java.lang.String>, com.e1c.edt.ai.IObserver<com.e1c.edt.ai.assistent.model.ConversationAskResponse>, com.e1c.edt.ai.ICancellationToken);
+  private com.e1c.edt.ai.assistent.model.ConversationAskResponse parseResponseLine(java.lang.String);
+  private void applyDelta(com.e1c.edt.ai.assistent.Conversations$AssistantMessageAccumulator, com.e1c.edt.ai.assistent.model.AssistantMessageContentDelta);
+  private void applyFinalContent(com.e1c.edt.ai.assistent.Conversations$AssistantMessageAccumulator, com.e1c.edt.ai.assistent.model.AssistantMessageContent);
+  private boolean hasPayload(com.e1c.edt.ai.assistent.model.ConversationAskResponse);
+  private java.util.Optional lambda$0(com.e1c.edt.ai.assistent.model.ConversationRequest, com.e1c.edt.ai.ICancellationToken, java.util.Optional);
+  private java.lang.AutoCloseable lambda$1(org.eclipse.core.resources.IProject, java.lang.String, com.e1c.edt.ai.assistent.model.ConversationAskRequest, com.e1c.edt.ai.ICancellationToken, com.e1c.edt.ai.IConversationProgressListener, com.e1c.edt.ai.IObserver);
+  private void lambda$3(com.e1c.edt.ai.ICancellationToken, com.e1c.edt.ai.IObserver, java.lang.String, com.e1c.edt.ai.assistent.model.Session, int, int, com.e1c.edt.ai.IConversationProgressListener, com.e1c.edt.ai.assistent.Conversations$AskRoundResult, java.lang.Throwable);
+  private static java.lang.String lambda$4(com.e1c.edt.ai.assistent.model.McpToolCall);
+  private void lambda$5(com.e1c.edt.ai.IConversationProgressListener, java.util.List, com.e1c.edt.ai.ICancellationToken, com.e1c.edt.ai.IObserver, com.e1c.edt.ai.assistent.model.ConversationAskResponse, int, com.e1c.edt.ai.assistent.model.Session, java.lang.String, int, com.e1c.edt.ai.McpCallToolsResult, java.lang.Throwable);
+  private static java.lang.String lambda$6(java.lang.String);
+  private static void lambda$7(java.util.concurrent.CompletableFuture);
+  private java.net.http.HttpResponse lambda$8(com.e1c.edt.ai.ICancellationToken, com.google.common.base.Stopwatch, java.net.http.HttpResponse);
+  private void lambda$10(com.e1c.edt.ai.IObserver, com.e1c.edt.ai.ICancellationToken, java.util.concurrent.CompletableFuture, java.util.stream.Stream);
+  private void lambda$11(java.lang.AutoCloseable, java.util.concurrent.CompletableFuture, java.util.concurrent.CompletableFuture, java.lang.Void, java.lang.Throwable);
+  private static void lambda$12(java.util.concurrent.CompletableFuture);
+  private java.net.http.HttpResponse lambda$13(com.google.common.base.Stopwatch, java.net.http.HttpResponse);
+  private java.util.Optional lambda$15(java.lang.String);
+  private static java.lang.String lambda$17(java.lang.String);
+  private java.lang.String lambda$18(com.e1c.edt.ai.assistent.model.ConversationAskResponse);
+  private void lambda$2(com.e1c.edt.ai.IObserver, java.lang.String, com.e1c.edt.ai.assistent.model.ConversationAskRequest, com.e1c.edt.ai.ICancellationToken, com.e1c.edt.ai.IConversationProgressListener, java.util.Optional, java.lang.Throwable);
+}
+Compiled from "McpToolCalls.java"
+public class com.e1c.edt.ai.assistent.model.McpToolCalls extends java.util.ArrayList<com.e1c.edt.ai.assistent.model.McpToolCall> {
+  private static final long serialVersionUID;
+  public com.e1c.edt.ai.assistent.model.McpToolCalls();
+}
+Compiled from "McpToolCallSpecification.java"
+public class com.e1c.edt.ai.assistent.model.McpToolCallSpecification {
+  public java.lang.String type;
+  public com.e1c.edt.ai.assistent.model.McpToolCallFunction function;
+  public com.e1c.edt.ai.assistent.model.McpToolCallSpecification();
+}

@@ -1,0 +1,228 @@
+Captured 2026-10-08; installed CLI 1.0.8.v202609241142; javap signatures/annotations and selected bytecode. Not Java source.
+SHA256: d7bc9ded0875b1bc070d79a319a53fac83fa6c0fcc29ebc68c45ce9fd1f046dd
+Compiled from "AskCommand.java"
+public class com.e1c.edt.ai.cli.AskCommand extends com.e1c.g5.v8.dt.cli.api.components.BaseCliCommand {
+  private static final long TURN_TIMEOUT_SECONDS;
+  private static final java.lang.String SKILL;
+  private static final java.lang.String DEFAULT_PREAMBLE;
+  private static final java.lang.String CONTINUE_INSTRUCTION;
+  private final com.e1c.edt.ai.IConversationFacade conversationFacade;
+  private final com.e1c.edt.ai.ISettingsSetter settingsSetter;
+  private final com.e1c.edt.ai.IDevToolCallRecorder recorder;
+  private final com.e1c.edt.ai.IJson json;
+  private final com.e1c.edt.ai.skills.ISkillExecutor skillExecutor;
+  public com.e1c.edt.ai.cli.AskCommand();
+  public java.lang.String c1_ask(java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String) throws java.io.IOException;
+  public java.lang.String c2_ask(java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String) throws java.io.IOException;
+  private java.lang.String run(org.eclipse.core.resources.IProject, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String) throws java.io.IOException;
+  private void ensureFullFeaturedAssistant();
+  private com.e1c.edt.ai.assistent.model.SkillExecutionResult executeSkill(org.eclipse.core.resources.IProject, java.lang.String, java.lang.String, java.lang.String);
+  private static java.util.Map<java.lang.String, java.lang.String> parseParams(java.lang.String);
+  private com.e1c.edt.ai.cli.AskCommand$Response runTurns(org.eclipse.core.resources.IProject, java.lang.String, java.lang.Integer, com.e1c.edt.ai.assistent.model.SkillExecutionResult);
+}
+Compiled from "AskCommand.java"
+final class com.e1c.edt.ai.cli.AskCommand$Response {
+  java.lang.String prompt;
+  java.lang.String project;
+  java.lang.String conversationId;
+  java.lang.String finalText;
+  java.lang.String reasoning;
+  int autoContinueCount;
+  java.util.List<com.e1c.edt.ai.IDevToolCallRecorder$DevToolCall> toolCalls;
+  private com.e1c.edt.ai.cli.AskCommand$Response();
+}
+
+  public java.lang.String c1_ask(
+RuntimeVisibleParameterAnnotations:
+      parameter 0:
+        0: #101(#98=[s#102],#103=s#104)
+          com.e1c.g5.v8.dt.cli.api.Argument(
+            value=["--project"]
+            descriptor="AskCommand_Project_location"
+          )
+      parameter 1:
+        0: #101(#98=[s#105],#103=s#106,#107=s#108)
+          com.e1c.g5.v8.dt.cli.api.Argument(
+            value=["--max-tool-rounds"]
+            descriptor="AskCommand_Max_tool_rounds"
+            defaultValue=""
+          )
+      parameter 2:
+        0: #101(#98=[s#109],#103=s#110,#107=s#108)
+          com.e1c.g5.v8.dt.cli.api.Argument(
+            value=["--token"]
+            descriptor="AskCommand_Token"
+            defaultValue=""
+          )
+      parameter 3:
+        0: #101(#98=[s#111],#103=s#112,#107=s#108)
+          com.e1c.g5.v8.dt.cli.api.Argument(
+            value=["--output"]
+            descriptor="AskCommand_Output"
+            defaultValue=""
+          )
+      parameter 4:
+        0: #101(#98=[s#113],#103=s#114,#107=s#108)
+          com.e1c.g5.v8.dt.cli.api.Argument(
+            value=["--skill"]
+            descriptor="AskCommand_Skill"
+            defaultValue=""
+          )
+      parameter 5:
+        0: #101(#98=[s#115],#103=s#116,#107=s#108)
+          com.e1c.g5.v8.dt.cli.api.Argument(
+            value=["--params"]
+            descriptor="AskCommand_Params"
+            defaultValue=""
+          )
+      parameter 6:
+        0: #101(#103=s#117)
+          com.e1c.g5.v8.dt.cli.api.Argument(
+            descriptor="AskCommand_Prompt"
+          )
+
+  public java.lang.String c2_ask(
+RuntimeVisibleParameterAnnotations:
+      parameter 0:
+        0: #101(#98=[s#158],#103=s#159)
+          com.e1c.g5.v8.dt.cli.api.Argument(
+            value=["--project-name"]
+            descriptor="AskCommand_Project_name"
+          )
+      parameter 1:
+        0: #101(#98=[s#105],#103=s#106,#107=s#108)
+          com.e1c.g5.v8.dt.cli.api.Argument(
+            value=["--max-tool-rounds"]
+            descriptor="AskCommand_Max_tool_rounds"
+            defaultValue=""
+          )
+      parameter 2:
+        0: #101(#98=[s#109],#103=s#110,#107=s#108)
+          com.e1c.g5.v8.dt.cli.api.Argument(
+            value=["--token"]
+            descriptor="AskCommand_Token"
+            defaultValue=""
+          )
+      parameter 3:
+        0: #101(#98=[s#111],#103=s#112,#107=s#108)
+          com.e1c.g5.v8.dt.cli.api.Argument(
+            value=["--output"]
+            descriptor="AskCommand_Output"
+            defaultValue=""
+          )
+      parameter 4:
+        0: #101(#98=[s#113],#103=s#114,#107=s#108)
+          com.e1c.g5.v8.dt.cli.api.Argument(
+            value=["--skill"]
+            descriptor="AskCommand_Skill"
+            defaultValue=""
+          )
+      parameter 5:
+        0: #101(#98=[s#115],#103=s#116,#107=s#108)
+          com.e1c.g5.v8.dt.cli.api.Argument(
+            value=["--params"]
+            descriptor="AskCommand_Params"
+            defaultValue=""
+          )
+      parameter 6:
+        0: #101(#103=s#117)
+          com.e1c.g5.v8.dt.cli.api.Argument(
+            descriptor="AskCommand_Prompt"
+          )
+
+Selected bytecode from runTurns. Locals: session=8, forceNew=10. Offsets 94/95 and 128/129 initialize these on every run.
+
+        94: aconst_null
+        95: astore        8
+       128: iconst_1
+       129: istore        10
+       131: iconst_0
+       132: istore        11
+       134: goto          354
+       137: new           #478                // class com/e1c/edt/ai/assistent/SendUserMessageRequest
+       140: dup
+       141: aload_1
+       142: aload         9
+       144: aload         8
+       146: iload         10
+       148: ldc           #12                 // String custom
+       150: getstatic     #480                // Field java/lang/Boolean.FALSE:Ljava/lang/Boolean;
+       153: aload_3
+       154: aload         6
+       156: aload         7
+       158: invokespecial #483                // Method com/e1c/edt/ai/assistent/SendUserMessageRequest."<init>":(Lorg/eclipse/core/resources/IProject;Ljava/lang/String;Lcom/e1c/edt/ai/assistent/ConversationSession;ZLjava/lang/String;Ljava/lang/Boolean;Ljava/lang/Integer;Ljava/util/Set;Lcom/e1c/edt/ai/assistent/model/SkillCompletionPolicy;)V
+       161: astore        12
+       163: aload_0
+       164: getfield      #43                 // Field conversationFacade:Lcom/e1c/edt/ai/IConversationFacade;
+       167: aload         12
+       169: getstatic     #380                // Field com/e1c/edt/ai/CancellationTokens.NONE:Lcom/e1c/edt/ai/ICancellationToken;
+       172: invokeinterface #486,  3          // InterfaceMethod com/e1c/edt/ai/IConversationFacade.sendAsync:(Lcom/e1c/edt/ai/assistent/SendUserMessageRequest;Lcom/e1c/edt/ai/ICancellationToken;)Ljava/util/concurrent/CompletableFuture;
+       286: aload         13
+       288: invokevirtual #504                // Method com/e1c/edt/ai/assistent/SendMessageResult.getSession:()Lcom/e1c/edt/ai/assistent/ConversationSession;
+       291: ifnull        307
+       294: aload         5
+       296: aload         13
+       298: invokevirtual #504                // Method com/e1c/edt/ai/assistent/SendMessageResult.getSession:()Lcom/e1c/edt/ai/assistent/ConversationSession;
+       301: invokevirtual #508                // Method com/e1c/edt/ai/assistent/ConversationSession.getConversationId:()Ljava/lang/String;
+       304: putfield      #251                // Field com/e1c/edt/ai/cli/AskCommand$Response.conversationId:Ljava/lang/String;
+       307: aload         13
+       309: iload         11
+       311: invokestatic  #513                // Method com/e1c/edt/ai/AutoContinuePolicy.shouldAutoContinue:(Lcom/e1c/edt/ai/assistent/SendMessageResult;I)Z
+       314: ifne          320
+       317: goto          384
+       320: aload         13
+       322: invokevirtual #504                // Method com/e1c/edt/ai/assistent/SendMessageResult.getSession:()Lcom/e1c/edt/ai/assistent/ConversationSession;
+       325: astore        8
+       327: aload         8
+       329: ifnonnull     335
+       332: goto          384
+       335: aload         5
+       337: iload         11
+       339: iconst_1
+       340: iadd
+       341: putfield      #259                // Field com/e1c/edt/ai/cli/AskCommand$Response.autoContinueCount:I
+       344: ldc #18  // fixed automatic continuation instruction; not external user input
+       346: astore        9
+       348: iconst_0
+       349: istore        10
+       351: iinc          11, 1
+       354: iload         11
+       356: sipush        1024
+       359: if_icmple     137
+  public java.lang.Object create() throws org.eclipse.core.runtime.CoreException;
+    Code:
+         0: invokestatic  #24                 // Method isAskEnabled:()Z
+         3: ifne          14
+         6: new           #28                 // class com/e1c/edt/ai/cli/AskCommandExtensionFactory$DisabledAskCommand
+         9: dup
+        10: invokespecial #30                 // Method com/e1c/edt/ai/cli/AskCommandExtensionFactory$DisabledAskCommand."<init>":()V
+        13: areturn
+        14: aload_0
+        15: invokespecial #31                 // Method com/e1c/g5/v8/dt/cli/api/components/BaseCliCommandExtensionFactory.create:()Ljava/lang/Object;
+        18: areturn
+
+
+  private static boolean isAskEnabled();
+    Code:
+         0: invokestatic  #48                 // Method ensureAiUiBundleStarted:()V
+         3: ldc           #51                 // class com/e1c/edt/ai/ISettings
+         5: invokestatic  #53                 // Method com/e1c/edt/ai/ui/BaseActivator.getInstance:(Ljava/lang/Class;)Ljava/lang/Object;
+         8: checkcast     #51                 // class com/e1c/edt/ai/ISettings
+        11: astore_0
+        12: aload_0
+        13: ifnull        27
+        16: aload_0
+        17: invokeinterface #59,  1           // InterfaceMethod com/e1c/edt/ai/ISettings.isExperimental:()Z
+        22: ifeq          27
+        25: iconst_1
+        26: ireturn
+        27: iconst_0
+        28: ireturn
+        29: astore_0
+        30: iconst_0
+        31: ireturn
+      Exception table:
+         from    to  target type
+             0    28    29   Class java/lang/Throwable
+
+

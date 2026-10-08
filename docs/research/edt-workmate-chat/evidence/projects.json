@@ -1,0 +1,20 @@
+{
+  "capturedAt": "2026-10-08T17:24:57.284Z",
+  "provenance": "list_projects retrieved during handoff preparation; contains local project paths",
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 4,
+    "result": {
+      "content": [
+        {
+          "type": "resource",
+          "resource": {
+            "uri": "embedded://list_projects.md",
+            "mimeType": "text/markdown",
+            "text": "## Workspace Projects\n\n**Total:** 3 projects\n\n| Name | State | Path | Open | EDT Project | Natures |\n|------|-------|------|------|-------------|--------|\n| АвтодействияТест | ready | E:\\projects\\Автодействия\\edt\\АвтодействияТест | Yes | Yes | xtextNature, V8ConfigurationNature |\n| АвтодействияТест.Автодействия | ready | E:\\projects\\Автодействия\\edt\\АвтодействияТест.Автодействия | Yes | Yes | xtextNature, V8ExtensionNature |\n| Серверы | not_available | E:\\projects\\Автодействия\\edt\\Серверы | Yes | No | - |\n"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "capturedAt": "2026-10-08T19:01:29.166Z",
+  "provenance": "fresh read-only checks in running EDT; no CLI gate override",
+  "settings": {
+    "jsonrpc": "2.0",
+    "id": 10,
+    "result": {
+      "content": [
+        {
+          "type": "resource",
+          "resource": {
+            "uri": "embedded://ask_workmate.md",
+            "mimeType": "text/markdown",
+            "text": "# Background job: done\n\n| Field | Value |\n| --- | --- |\n| jobId | 23ee4e4f-7c92-44f0-b49e-c3e451c26ba3 |\n| owningTool | ask_workmate |\n| status | done |\n| elapsed | 324 ms |\n| startedAt | 2026-10-08T18:55:23.236Z |\n| completedAt | 2026-10-08T18:55:23.560Z |\n\n## Progress\n\n- `2026-10-08T18:55:23.236Z` — Accepted the direct Workmate tool call.\n- `2026-10-08T18:55:23.239Z` — Located the 1C:Workmate plugin.\n- `2026-10-08T18:55:23.239Z` — Verified that Workmate is enabled and holds an access key.\n- `2026-10-08T18:55:23.239Z` — Invoking Workmate tool 'JShell' directly.\n- `2026-10-08T18:55:23.560Z` — Workmate tool 'JShell' returned.\n\n## Answer\n\n{\n  \"repl_session_id\": \"c3c18496-327d-440b-a177-869d427a8d7c\",\n  \"available_bindings\": [\n    \"handlerService\",\n    \"workspaceRoot\",\n    \"workbench\",\n    \"commandService\"\n  ],\n  \"std_out\": \"cliBundle=1.0.8.v202609241142\\r\\nexperimental=false\\r\\n\",\n  \"std_err\": \"\",\n  \"compilation_errors\": [],\n  \"runtime_errors\": []\n}"
+          }
+        }
+      ]
+    }
+  },
+  "factory": {
+    "jsonrpc": "2.0",
+    "id": 11,
+    "result": {
+      "content": [
+        {
+          "type": "resource",
+          "resource": {
+            "uri": "embedded://ask_workmate.md",
+            "mimeType": "text/markdown",
+            "text": "# Background job: done\n\n| Field | Value |\n| --- | --- |\n| jobId | 78b11a8b-72dd-4e09-9870-c47642fc0eec |\n| owningTool | ask_workmate |\n| status | done |\n| elapsed | 438 ms |\n| startedAt | 2026-10-08T18:59:39.742Z |\n| completedAt | 2026-10-08T18:59:40.180Z |\n\n## Progress\n\n- `2026-10-08T18:59:39.742Z` — Accepted the direct Workmate tool call.\n- `2026-10-08T18:59:39.743Z` — Located the 1C:Workmate plugin.\n- `2026-10-08T18:59:39.743Z` — Verified that Workmate is enabled and holds an access key.\n- `2026-10-08T18:59:39.743Z` — Invoking Workmate tool 'JShell' directly.\n- `2026-10-08T18:59:40.180Z` — Workmate tool 'JShell' returned.\n\n## Answer\n\n{\n  \"repl_session_id\": \"c3c18496-327d-440b-a177-869d427a8d7c\",\n  \"available_bindings\": [\n    \"handlerService\",\n    \"workspaceRoot\",\n    \"workbench\",\n    \"commandService\"\n  ],\n  \"std_out\": \"registeredCommand=com.e1c.edt.ai.cli.AskCommandExtensionFactory$DisabledAskCommand\\r\\n\",\n  \"std_err\": \"\",\n  \"compilation_errors\": [],\n  \"runtime_errors\": []\n}"
+          }
+        }
+      ]
+    }
+  }
+}

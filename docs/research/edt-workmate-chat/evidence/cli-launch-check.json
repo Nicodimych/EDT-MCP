@@ -1,0 +1,54 @@
+{
+  "capturedAt": "2026-10-08T19:04:34.787647+00:00",
+  "scope": "Separate temporary workspace; no business project imported; no access token exported or feature flag changed",
+  "javaHome": "C:\\Program Files\\1C\\1CE\\components\\axiom-jdk-full-25.0.4+3-x86_64",
+  "workspace": "C:\\Users\\nicodim\\AppData\\Local\\Temp\\codex-workmate-cli-0911905111554621b259085717b71390\\workspace",
+  "launcherHelp": {
+    "arguments": [
+      "-help"
+    ],
+    "exitCode": 0,
+    "confirmedOptions": [
+      "-data",
+      "-timeout",
+      "-command",
+      "-file",
+      "-nl",
+      "-v",
+      "-ini-file",
+      "-vmargs"
+    ]
+  },
+  "initialAskProbe": {
+    "arguments": [
+      "-data",
+      "<temporary-workspace>",
+      "-command",
+      "ask",
+      "--prompt",
+      "<harmless-marker-prompt>",
+      "--output",
+      "<temporary-result.json>"
+    ],
+    "resultFileExists": false,
+    "outcome": "No completed command result; diagnostic child and parent processes stopped after several minutes. --prompt later found absent from AskCommand annotations. Not proof of successful execution or of a model failure.",
+    "stoppedParentPid": 48280,
+    "stoppedChildPid": 10324
+  },
+  "helpAsk": {
+    "arguments": [
+      "-data",
+      "<temporary-workspace>",
+      "-timeout",
+      "45",
+      "-command",
+      "help",
+      "ask"
+    ],
+    "exitCode": 0,
+    "stdout": "Команда не найдена.",
+    "stderrBytes": 0,
+    "interpretation": "The help subcommand reports ask not found; exit 0 is not an AI-task success."
+  },
+  "twoTurnCliDialog": "not executed: active factory is DisabledAskCommand and installed CLI has no resume/session input"
+}

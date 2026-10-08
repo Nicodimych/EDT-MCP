@@ -1,0 +1,175 @@
+{
+  "capturedAt": "2026-10-08T17:24:57.284Z",
+  "provenance": "tools/list retrieved during handoff preparation",
+  "totalTools": 99,
+  "tools": [
+    {
+      "name": "get_configuration_properties",
+      "description": "Inspect the identity and compatibility settings of a 1C configuration. Parameters and examples: get_tool_guide('get_configuration_properties').",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectName": {
+            "type": "string",
+            "description": "Project name (optional, if not specified returns first configuration project)"
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_server_status",
+      "description": "Diagnose the EDT MCP server and its feature configuration. Parameters and examples: get_tool_guide('get_server_status').",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "protocolVersion": {
+            "type": "string"
+          },
+          "pluginVersion": {
+            "type": "string"
+          },
+          "edtVersion": {
+            "type": "string"
+          },
+          "enabledTools": {
+            "type": "integer"
+          },
+          "totalTools": {
+            "type": "integer"
+          },
+          "plainTextMode": {
+            "type": "boolean"
+          },
+          "checksFolderConfigured": {
+            "type": "boolean"
+          },
+          "authEnabled": {
+            "type": "boolean"
+          },
+          "formRenderFlags": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "success"
+        ]
+      }
+    },
+    {
+      "name": "ask_workmate",
+      "description": "Start a background question to the 1C:Workmate plugin and return its jobId. Hands the question to an EXTERNAL agent: by default (shareMcpTools) Workmate may call EDT-MCP's own tools through this plugin, so it can READ the project and CHANGE code and metadata; workmateTool mode runs a named Workmate tool directly (JShell included). Poll the job with get_job_status instead of calling ask_workmate again. Requires a compatible Workmate installation in the same EDT JVM. Full parameters and examples: call get_tool_guide('ask_workmate').",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "projectName": {
+            "type": "string"
+          },
+          "maxToolRounds": {
+            "type": "integer"
+          },
+          "skillName": {
+            "type": "string"
+          },
+          "timeoutSeconds": {
+            "type": "integer"
+          },
+          "waitSeconds": {
+            "type": "integer"
+          },
+          "workmateTool": {
+            "type": "string"
+          },
+          "workmateArgs": {
+            "type": "string"
+          },
+          "shareMcpTools": {
+            "type": "boolean"
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_job_status",
+      "description": "Poll any background job by the jobId its owning tool returned: state, progress journal and terminal result. Parameters and examples: get_tool_guide('get_job_status').",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string"
+          },
+          "waitSeconds": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "jobId"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_projects",
+      "description": "Discover projects available in the EDT workspace. Parameters and examples: get_tool_guide('list_projects').",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "md",
+              "json"
+            ]
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    }
+  ]
+}
