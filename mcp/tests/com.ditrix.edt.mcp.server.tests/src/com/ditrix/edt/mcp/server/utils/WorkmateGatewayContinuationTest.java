@@ -277,4 +277,24 @@ public class WorkmateGatewayContinuationTest
         assertTrue("the instruction has to begin with a hard break",
             WorkmateGateway.FINALITY_INSTRUCTION.startsWith("\n\n"));
     }
+
+    @Test
+    public void testAClarifyingQuestionWithOptionsIsNotMistakenForAPlan()
+    {
+        // When Workmate asks the caller to choose between options ("Уточните вариант: 1) ...
+        // 2) ... — и я создам объект?"), it is waiting for the next user turn, not announcing
+        // an autonomous continuation.
+        assertFalse(WorkmateGateway.needsContinuation(
+            "\u0423\u0442\u043E\u0447\u043D\u0438\u0442\u0435 \u0432\u0430\u0440\u0438\u0430\u043D\u0442: 1) \u0421\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A 2) \u0420\u0435\u0433\u0438\u0441\u0442\u0440 \u2014 \u043A\u0430\u043A\u043E\u0439 \u043E\u0431\u044A\u0435\u043A\u0442 \u044F \u0441\u043E\u0437\u0434\u0430\u043C?")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void testInterruptedResponseNeedsContinuation()
+    {
+        assertTrue(WorkmateGateway.needsContinuation("[Response interrupted by APM]")); //$NON-NLS-1$
+        assertTrue(WorkmateGateway.needsContinuation(
+            "[Response interrupted by GetVisualContext]")); //$NON-NLS-1$
+        assertTrue(WorkmateGateway.needsContinuation(
+            "Partial text\n[Response interrupted by APM]")); //$NON-NLS-1$
+    }
 }

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * MCP Server for EDT
  * Copyright (C) 2025 DitriX (https://github.com/DitriXNew)
  * Licensed under AGPL-3.0-or-later
@@ -105,12 +105,22 @@ public final class PreferenceConstants
      * gain three older tools whose own descriptions declare them destructive; 10 = a stored
      * no-debug preset gains {@code debug_pause}, a tool that did not exist when it was saved;
      * 11 = stored read-only profiles gain the new {@code import_project_from_file} project importer;
-     * 12 = they gain the new {@code export_configuration_to_file} infobase dump.
+     * 12 = they gain the new {@code export_configuration_to_file} infobase dump; 13 = every stored
+     * list gains the five {@code workmate_chat_*} tools, which ship OFF by default like
+     * {@code ask_workmate}.
      */
-    public static final int TOOL_PREFS_MIGRATION_VERSION = 12;
+    public static final int TOOL_PREFS_MIGRATION_VERSION = 13;
 
-    /** The raw {@code git} command tool is powerful, so it ships DISABLED by default (opt-in). */
-    public static final String DEFAULT_DISABLED_TOOLS = "git,ask_workmate"; //$NON-NLS-1$
+    /**
+     * Tools that ship DISABLED by default (opt-in): the powerful raw {@code git} command tool;
+     * {@code ask_workmate}, which hands the question to an external plugin that reaches a cloud
+     * service and can change the configuration with its own tools; and the five
+     * {@code workmate_chat_*} tools, which talk to the same cloud service through a stored
+     * conversation cursor.
+     */
+    public static final String DEFAULT_DISABLED_TOOLS = "git,ask_workmate," //$NON-NLS-1$
+        + "workmate_chat_create,workmate_chat_send,workmate_chat_history," //$NON-NLS-1$
+        + "workmate_chat_list,workmate_chat_drop"; //$NON-NLS-1$
 
     // === Progressive tool disclosure (dynamic toolsets) ===
 

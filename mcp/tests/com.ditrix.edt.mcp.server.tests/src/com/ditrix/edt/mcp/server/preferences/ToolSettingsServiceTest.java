@@ -69,6 +69,17 @@ public class ToolSettingsServiceTest
     private static final Set<String> READ_ONLY_V12_ADDITIONS = Set.of(
         "export_configuration_to_file"); //$NON-NLS-1$
 
+    /*
+     * Version 13 additions: the five workmate_chat_* tools ship OFF by default, so version 13 adds
+     * them to EVERY stored list (the version 3 pattern), not only to recognized read-only profiles.
+     */
+    private static final Set<String> STORED_PROFILE_V13_ADDITIONS = Set.of(
+        "workmate_chat_create", //$NON-NLS-1$
+        "workmate_chat_send", //$NON-NLS-1$
+        "workmate_chat_history", //$NON-NLS-1$
+        "workmate_chat_list", //$NON-NLS-1$
+        "workmate_chat_drop"); //$NON-NLS-1$
+
     private static final int VERSION_8_ANALYSIS_ONLY_DISABLED_COUNT = 58;
 
     private static final String VERSION_8_ANALYSIS_ONLY_DISABLED_SHA_256 =
@@ -418,6 +429,44 @@ public class ToolSettingsServiceTest
     }
 
     @Test
+    public void testWorkmateChatToolsAreOffByDefaultAndOnUpgrade()
+    {
+        assertTrue("the shipped default must disable the workmate_chat_* tools",
+            ToolSettingsService.parseDisabledTools(PreferenceConstants.DEFAULT_DISABLED_TOOLS)
+                .containsAll(STORED_PROFILE_V13_ADDITIONS));
+
+        // A stored list at version 12 predates the chat tools; version 13 must add them to
+        // EVERY stored list, not only to recognized read-only profiles.
+        PreferenceStore store = storedDisabledTools(Set.of("launch"), 12); //$NON-NLS-1$
+
+        ToolSettingsService.ensureMigratedForTest(store);
+
+        Set<String> disabled = disabledTools(store);
+        assertTrue("the upgrade must disable every workmate_chat_* tool: " + disabled,
+            disabled.containsAll(STORED_PROFILE_V13_ADDITIONS));
+        assertTrue("it must keep what the user chose: " + disabled,
+            disabled.contains("launch")); //$NON-NLS-1$
+        assertEquals(PreferenceConstants.TOOL_PREFS_MIGRATION_VERSION,
+            store.getInt(PreferenceConstants.PREF_TOOL_PREFS_MIGRATION));
+    }
+
+    @Test
+    public void testVersion13DoesNotRerunWhenAStoreAlreadyCarriesTheChatTools()
+    {
+        Set<String> stored = new HashSet<>(Set.of("launch")); //$NON-NLS-1$
+        stored.addAll(STORED_PROFILE_V13_ADDITIONS);
+        // The user deliberately re-enabled one chat tool after version 13; a later migration
+        // round must not blanket-restore it.
+        stored.remove("workmate_chat_list"); //$NON-NLS-1$
+        PreferenceStore store = storedDisabledTools(stored,
+            PreferenceConstants.TOOL_PREFS_MIGRATION_VERSION);
+
+        ToolSettingsService.ensureMigratedForTest(store);
+
+        assertEquals(stored, disabledTools(store));
+    }
+
+    @Test
     public void testMigrationToVersion2DoesNotReAddGitRemovedAfterVersion1()
     {
         PreferenceStore store = storedDisabledTools(Set.of("launch"), 1); //$NON-NLS-1$
@@ -673,10 +722,13 @@ public class ToolSettingsServiceTest
 
         // The version 5 rename is orthogonal to shape recognition and applies to any stored list,
         // so the expectation is the SAME selection spelled with the current tool name - not a free
-        // pass for version 4 to add anything.
+        // pass for version 4 to add anything. Version 13 legitimately adds the default-off
+        // workmate_chat_* tools to every stored list; the subject here is version 4, which must
+        // add nothing beyond the rename.
         Set<String> expected = new HashSet<>(overlap);
         expected.remove("debug_launch"); //$NON-NLS-1$
         expected.add("launch"); //$NON-NLS-2$
+        expected.addAll(STORED_PROFILE_V13_ADDITIONS);
         assertEquals(expected, disabledTools(store));
     }
 
@@ -1086,7 +1138,11 @@ public class ToolSettingsServiceTest
 
         ToolSettingsService.ensureMigratedForTest(store);
 
-        assertEquals(Set.of("git", "ask_workmate"), disabledTools(store)); //$NON-NLS-1$ //$NON-NLS-2$
+        // Version 13 adds the default-off workmate_chat_* tools to every stored list; the
+        // subject here is version 10, which must add nothing (not even debug_pause).
+        Set<String> expected = new HashSet<>(Set.of("git", "ask_workmate")); //$NON-NLS-1$ //$NON-NLS-2$
+        expected.addAll(STORED_PROFILE_V13_ADDITIONS);
+        assertEquals(expected, disabledTools(store));
     }
 
     @Test
@@ -1303,7 +1359,10 @@ public class ToolSettingsServiceTest
 
         ToolSettingsService.ensureMigratedForTest(store);
 
-        assertEquals(Set.of(), disabledTools(store));
+        // Version 13 adds the default-off workmate_chat_* tools to every stored list; the
+        // subject here is version 8, whose infobase_sessions must NOT be added to an all-tools
+        // store.
+        assertEquals(STORED_PROFILE_V13_ADDITIONS, disabledTools(store));
     }
 
     @Test
@@ -1396,7 +1455,10 @@ public class ToolSettingsServiceTest
 
         ToolSettingsService.ensureMigratedForTest(store);
 
-        assertEquals(Set.of(), disabledTools(store));
+        // Version 13 adds the default-off workmate_chat_* tools to every stored list; the
+        // subject here is version 9, whose destructive tools must NOT be added to an all-tools
+        // store.
+        assertEquals(STORED_PROFILE_V13_ADDITIONS, disabledTools(store));
     }
 
     @Test
@@ -1458,7 +1520,10 @@ public class ToolSettingsServiceTest
 
         ToolSettingsService.ensureMigratedForTest(store);
 
-        assertEquals(Set.of(), disabledTools(store));
+        // Version 13 adds the default-off workmate_chat_* tools to every stored list; the
+        // subject here is version 11, whose project importer must NOT be added to an all-tools
+        // store.
+        assertEquals(STORED_PROFILE_V13_ADDITIONS, disabledTools(store));
     }
 
     @Test
@@ -1502,7 +1567,8 @@ public class ToolSettingsServiceTest
         assertEquals("version 12 must restore the current disabled set for " + preset, //$NON-NLS-1$
             preset.getDisabledTools(), disabled);
         assertEquals(preset, ToolPreset.matchPreset(disabled));
-        assertEquals(12, store.getInt(PreferenceConstants.PREF_TOOL_PREFS_MIGRATION));
+        assertEquals(PreferenceConstants.TOOL_PREFS_MIGRATION_VERSION,
+            store.getInt(PreferenceConstants.PREF_TOOL_PREFS_MIGRATION));
     }
 
     private static void assertVersion9RestoresCurrentPreset(ToolPreset preset)

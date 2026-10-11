@@ -160,6 +160,8 @@ public final class Toolsets
 
         assign(TESTING,
             "run_yaxunit_tests", "debug_yaxunit_tests", "ask_workmate", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            "workmate_chat_create", "workmate_chat_send", "workmate_chat_history", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            "workmate_chat_list", "workmate_chat_drop", //$NON-NLS-1$ //$NON-NLS-2$
             "get_job_status", "cancel_job"); //$NON-NLS-1$ //$NON-NLS-2$
 
         assign(PROFILING,

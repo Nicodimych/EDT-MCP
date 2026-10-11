@@ -82,6 +82,22 @@ public final class ToolSettingsService // NOSONAR intentional singleton (Eclipse
     private static final Set<String> READ_ONLY_V12_ADDITIONS = Set.of(
         "export_configuration_to_file"); //$NON-NLS-1$
 
+    /*
+     * Version 13 is the version 3 case again, five tools later: the workmate_chat_* tools ship
+     * OFF by default (they hand the question to an external plugin that reaches a cloud service
+     * and may then change the configuration, exactly like ask_workmate), so every explicitly
+     * stored denylist predating them must gain them - otherwise the missing name reads as
+     * "enabled". No preset-shape recognition: a stored list is owed these names regardless of
+     * which preset it expresses, and a user who re-enabled ask_workmate still never saw the
+     * chat tools.
+     */
+    private static final Set<String> STORED_PROFILE_V13_ADDITIONS = Set.of(
+        "workmate_chat_create", //$NON-NLS-1$
+        "workmate_chat_send", //$NON-NLS-1$
+        "workmate_chat_history", //$NON-NLS-1$
+        "workmate_chat_list", //$NON-NLS-1$
+        "workmate_chat_drop"); //$NON-NLS-1$
+
     /** Actual disabled-name additions registered for each Analysis Only migration. */
     static final Map<Integer, Set<String>> ANALYSIS_ONLY_MIGRATION_ADDITIONS_BY_VERSION = Map.ofEntries(
         Map.entry(1, STORED_PROFILE_V1_ADDITIONS),
@@ -94,7 +110,8 @@ public final class ToolSettingsService // NOSONAR intentional singleton (Eclipse
         Map.entry(9, READ_ONLY_V9_ADDITIONS),
         Map.entry(10, NO_DEBUG_V10_ADDITIONS),
         Map.entry(11, READ_ONLY_V11_ADDITIONS),
-        Map.entry(12, READ_ONLY_V12_ADDITIONS));
+        Map.entry(12, READ_ONLY_V12_ADDITIONS),
+        Map.entry(13, STORED_PROFILE_V13_ADDITIONS));
 
     /** Actual disabled-name additions registered for each Code Review migration. */
     static final Map<Integer, Set<String>> CODE_REVIEW_MIGRATION_ADDITIONS_BY_VERSION = Map.ofEntries(
@@ -108,7 +125,8 @@ public final class ToolSettingsService // NOSONAR intentional singleton (Eclipse
         Map.entry(9, READ_ONLY_V9_ADDITIONS),
         Map.entry(10, NO_DEBUG_V10_ADDITIONS),
         Map.entry(11, READ_ONLY_V11_ADDITIONS),
-        Map.entry(12, READ_ONLY_V12_ADDITIONS));
+        Map.entry(12, READ_ONLY_V12_ADDITIONS),
+        Map.entry(13, STORED_PROFILE_V13_ADDITIONS));
 
     /*
      * Frozen recognition shapes: what any historical stored profile of this preset must contain.
@@ -363,6 +381,12 @@ public final class ToolSettingsService // NOSONAR intentional singleton (Eclipse
             {
                 // export_configuration_to_file is new and drives the Designer against an infobase.
                 changed |= migrateConfigurationFileExportIntoReadOnlyPresets(disabled);
+            }
+            if (storedVersion < 13)
+            {
+                // The five workmate_chat_* tools ship OFF by default, so every stored list
+                // predating them gains them - the version 3 step again, five tools later.
+                changed |= disabled.addAll(STORED_PROFILE_V13_ADDITIONS);
             }
             if (changed)
             {

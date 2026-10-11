@@ -386,7 +386,12 @@ public class AskWorkmateTool implements IMcpTool
             + "System.out.println(" + example + ");\n" //$NON-NLS-1$
             + "}\n\n" //$NON-NLS-1$
             + "Reuse one session for follow-up calls. Report what the tool actually " //$NON-NLS-1$
-            + "returned and never invent a result.\n\n" //$NON-NLS-1$
+            + "returned and never invent a result. Before using unfamiliar 1C platform " //$NON-NLS-1$
+            + "types, properties, or methods in BSL code, ALWAYS verify their exact " //$NON-NLS-1$
+            + "signatures via get_platform_documentation through the bridge instead of " //$NON-NLS-1$
+            + "guessing (EDT static check does not catch dynamic property errors at compile " //$NON-NLS-1$
+            + "time: e.g. Символы only has ВК/ПФ/ПС/НПП/Таб/ВТаб - no ОбратныйПрямой/Цифры/Буквы; " //$NON-NLS-1$
+            + "Соответствие uses Получить(Ключ) and has no Свойство() method).\n\n" //$NON-NLS-1$
             + "ask_workmate is in that list on purpose: you may delegate a self-contained " //$NON-NLS-1$
             + "sub-question to it as a sub-agent. It answers asynchronously - take the " //$NON-NLS-1$
             + "jobId from its reply and poll it with get_job_status instead of waiting - " //$NON-NLS-1$
@@ -615,7 +620,7 @@ public class AskWorkmateTool implements IMcpTool
             + "' when you need the answer text back here."; //$NON-NLS-1$
     }
 
-    private static String actionableMessage(GatewayException error, int timeoutSeconds)
+    static String actionableMessage(GatewayException error, int timeoutSeconds)
     {
         switch (error.getKind())
         {

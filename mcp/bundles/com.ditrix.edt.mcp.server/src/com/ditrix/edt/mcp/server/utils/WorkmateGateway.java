@@ -18,9 +18,13 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
@@ -151,12 +155,11 @@ public class WorkmateGateway
      * the result says the completion marker never arrived.
      *
      * <p>IDLE, not elapsed: a turn that is working - calling this plugin's tools through the
-     * bridge, which reports both started calls and calls still running ({@link BridgeActivity}) -
-     * keeps the clock reset. Only silence counts, because a tool loop that legitimately runs for
-     * minutes must not be cut off (a project question measured 75 s here, and a bigger project
-     * takes longer).
+     * bridge ({@link BridgeActivity}), or reporting turn/tool progress through Workmate's own
+     * {@code IConversationProgressListener} - keeps the clock reset. Only silence counts, because
+     * a tool loop that legitimately runs for minutes must not be cut off.
      */
-    static final long DEFAULT_IDLE_TURN_TIMEOUT_MS = 120_000L;
+    static final long DEFAULT_IDLE_TURN_TIMEOUT_MS = 300_000L;
 
     /** How often the wait wakes up to see whether the turn is still doing anything. */
     static final long DEFAULT_IDLE_POLL_MS = 5_000L;
@@ -389,8 +392,14 @@ public class WorkmateGateway
      */
     static Object[] sendAsyncArguments(Method sendAsync, Object request, Object cancellationToken)
     {
+        return sendAsyncArguments(sendAsync, request, cancellationToken, null);
+    }
+
+    static Object[] sendAsyncArguments(Method sendAsync, Object request, Object cancellationToken,
+        Object progressListener)
+    {
         return sendAsync.getParameterCount() == 3
-            ? new Object[] {request, cancellationToken, null}
+            ? new Object[] {request, cancellationToken, progressListener}
             : new Object[] {request, cancellationToken};
     }
 
@@ -602,6 +611,7 @@ public class WorkmateGateway
         private final boolean declaredFinal;
         private final boolean wentQuiet;
         private final boolean answerAccepted;
+        private final String sessionState;
 
         public WorkmateResponse(String text, String reasoning)
         {
@@ -629,6 +639,14 @@ public class WorkmateGateway
         public WorkmateResponse(String text, String reasoning, Integer assistantMessageCount, // NOSONAR the outcome needs every one of these to be reported honestly
             int continuations, boolean declaredFinal, boolean wentQuiet, boolean answerAccepted)
         {
+            this(text, reasoning, assistantMessageCount, continuations, declaredFinal, wentQuiet,
+                answerAccepted, null);
+        }
+
+        public WorkmateResponse(String text, String reasoning, Integer assistantMessageCount,
+            int continuations, boolean declaredFinal, boolean wentQuiet, boolean answerAccepted,
+            String sessionState)
+        {
             this.text = text;
             this.reasoning = reasoning;
             this.assistantMessageCount = assistantMessageCount;
@@ -636,6 +654,7 @@ public class WorkmateGateway
             this.declaredFinal = declaredFinal;
             this.wentQuiet = wentQuiet;
             this.answerAccepted = answerAccepted;
+            this.sessionState = sessionState;
         }
 
         public String getText()
@@ -708,6 +727,21 @@ public class WorkmateGateway
         {
             return answerAccepted;
         }
+
+        /**
+         * The conversation cursor after this call, serialized as
+         * {@code {"conversationId":...,"replyToMessageUuid":...}}. It is what lets the NEXT
+         * user message land in the SAME cloud conversation instead of starting a new one.
+         * {@code null} when the installed Workmate exposes no conversation handle (the
+         * answer is still the answer; the conversation just cannot be continued) or when a
+         * test/fake gateway produced the response.
+         *
+         * @return the session cursor, or {@code null} when none was obtained
+         */
+        public String getSessionState()
+        {
+            return sessionState;
+        }
     }
 
     /**
@@ -746,6 +780,44 @@ public class WorkmateGateway
      */
     public WorkmateResponse ask(IProject project, String question, Integer maxToolRounds,
         String skillName, long timeoutMillis, ProgressListener progress) throws GatewayException
+    {
+        return askWithSession(project, null, question, maxToolRounds, skillName, timeoutMillis,
+            progress);
+    }
+
+    /**
+     * Sends one user message into a conversation that may already exist.
+     * <p>
+     * This is the stateful-chat entry point: with {@code sessionState} {@code null} it behaves
+     * exactly like {@link #ask(IProject, String, Integer, String, long, ProgressListener)} and
+     * starts a NEW cloud conversation; with a cursor saved from an earlier call's
+     * {@link WorkmateResponse#getSessionState()} it sends the message into that SAME cloud
+     * conversation ({@code forceNewConversation=false}), so Workmate sees everything said
+     * before. Either way the loop drives the turn to a final answer exactly like {@code ask},
+     * and the returned response carries the NEW cursor to save for the next message.
+     * <p>
+     * The cursor is a serialized {@code ConversationSession} ({@code conversationId} plus
+     * {@code replyToMessageUuid}); it names the cloud conversation and the message it branches
+     * from. Workmate advances {@code replyToMessageUuid} on every turn, so a caller MUST save
+     * the cursor this call returns and MUST NOT re-send an older one, or the conversation
+     * branches.
+     *
+     * @param project optional EDT project; {@code null} selects {@code ProjectId.Default}
+     *            only on Workmate layouts that provide it
+     * @param sessionState cursor from an earlier {@link WorkmateResponse#getSessionState()},
+     *            or {@code null} to start a new cloud conversation
+     * @param question user message
+     * @param maxToolRounds optional Workmate tool-round limit
+     * @param skillName optional Workmate skill name
+     * @param timeoutMillis total remaining job budget used to await Workmate
+     * @param progress milestone listener
+     * @return Workmate text, optional reasoning, assistant-message count and the new
+     *         conversation cursor (possibly {@code null})
+     * @throws GatewayException categorized runtime/compatibility failure
+     */
+    public WorkmateResponse askWithSession(IProject project, String sessionState,
+        String question, Integer maxToolRounds, String skillName, long timeoutMillis,
+        ProgressListener progress) throws GatewayException
     {
         // Taken BEFORE the reflective setup, not after it: bundle lookup, injector resolution
         // and the authorization probe all spend the caller's budget, and a deadline started
@@ -793,6 +865,9 @@ public class WorkmateGateway
                     + "selected: none; detected public constructors: " //$NON-NLS-1$
                     + publicConstructorShapes(requestClass));
             }
+            Object session = sessionState == null
+                ? null
+                : restoreSession(sessionClass, sessionState);
             Object requestProject = projectArgument(requestConstructor.getParameterTypes()[0],
                 project, "SendUserMessageRequest"); //$NON-NLS-1$
             Class<?> cancellationTokenClass = requireClass(aiBundle, CANCELLATION_TOKEN);
@@ -816,7 +891,15 @@ public class WorkmateGateway
             // conversation while the answer still looks like an announcement. So does this loop.
             String effectiveSkill =
                 skillName == null || skillName.isEmpty() ? DEFAULT_SKILL : skillName;
-            Object session = null;
+            // FIRST TURN is a property of THIS CALL, not of "session == null": a stateful chat
+            // arrives with a session already in hand, and its first dispatch is just as
+            // irreversible as a new conversation's - Workmate's tool loop can edit this
+            // configuration from the very first turn of a continued conversation too.
+            boolean firstTurn = true;
+            // The newest cursor of a COMPLETED turn. Quiet windups (turn == null) produce no
+            // cursor, so the previous completed turn's one stays - it is still the furthest
+            // point the conversation is known to have reached.
+            Object resumeCursor = null;
             String message = question;
             String answer = null;
             String reasoning = null;
@@ -856,24 +939,32 @@ public class WorkmateGateway
                 // Checked BEFORE the commit handshake, not only inside the send: a request that
                 // has not gone out yet leaves nothing behind, so an expired budget here is an
                 // ordinary retryable timeout rather than the "already dispatched" kind.
-                if (session == null && budgetSpent(deadlineNanos))
+                if (firstTurn && budgetSpent(deadlineNanos))
                 {
                     throw GatewayException.timedOut();
                 }
-                if (session == null && !progress.onTryCommit())
+                if (firstTurn && !progress.onTryCommit())
                 {
                     throw GatewayException.callFailed("the job was already reported as finished " //$NON-NLS-1$
                         + "before the question could be sent, so it was not sent"); //$NON-NLS-1$
                 }
                 Turn turn = sendTurn(facade, sendAsync, request, cancellationTokenClass,
-                    resultClass, deadlineNanos, session == null,
-                    session == null ? "Sent the request to Workmate." //$NON-NLS-1$
+                    resultClass, deadlineNanos, firstTurn,
+                    firstTurn
+                        ? (session == null
+                            ? "Sent the request to Workmate." //$NON-NLS-1$
+                            : "Sent the message into the existing Workmate conversation.") //$NON-NLS-1$
                         : "Asked Workmate to continue in the same conversation.", //$NON-NLS-1$
                     progress, dispatched);
+                firstTurn = false;
                 if (turn == null)
                 {
                     wentQuiet = true;
                     break;
+                }
+                if (turn.session != null)
+                {
+                    resumeCursor = turn.session;
                 }
                 assistantMessages = addMessages(assistantMessages, turn.messages);
                 // The DECLARATION wins: a turn that marked itself final is final, whatever it
@@ -930,7 +1021,8 @@ public class WorkmateGateway
             progress.onProgress(declaredFinal ? "Received the Workmate response." //$NON-NLS-1$
                 : "Received a response that Workmate did not mark as final."); //$NON-NLS-1$
             return new WorkmateResponse(reported, reasoning, assistantMessages, continuations,
-                declaredFinal, wentQuiet, answer != null);
+                declaredFinal, wentQuiet, answer != null,
+                resumeCursor == null ? null : sessionStateOf(sessionClass, resumeCursor));
         }
         catch (GatewayException e)
         {
@@ -1060,11 +1152,12 @@ public class WorkmateGateway
     static boolean needsContinuation(String text)
     {
         String trimmed = trimToNull(text);
-        if (trimmed == null)
+        if (trimmed == null
+            || (trimmed.contains("[Response interrupted by ") && trimmed.endsWith("]"))) //$NON-NLS-1$ //$NON-NLS-2$
         {
             return true;
         }
-        if (trimmed.length() > PLAN_TEXT_MAX_CHARS)
+        if (trimmed.length() > PLAN_TEXT_MAX_CHARS || trimmed.endsWith("?")) //$NON-NLS-1$
         {
             return false;
         }
@@ -1291,14 +1384,22 @@ public class WorkmateGateway
         }
         AtomicBoolean cancelled = new AtomicBoolean(false);
         Object cancellationToken = createCancellationToken(cancellationTokenClass, cancelled);
+        AtomicLong turnTicks = new AtomicLong();
+        AtomicInteger nativeInFlight = new AtomicInteger();
+        List<String> toolsCalled = Collections.synchronizedList(new ArrayList<>());
+        long bridgeBefore = BridgeActivity.ticks();
+        Object turnProgressListener = sendAsync.getParameterCount() == 3
+            ? createProgressListenerProxy(sendAsync.getParameterTypes()[2], turnTicks,
+                nativeInFlight, toolsCalled, progress)
+            : null;
         Object futureValue;
         try
         {
-            // Workmate 1.0.7 added a progress listener, but its reporting paths explicitly
-            // accept null. Passing that sentinel keeps this adapter independent of the listener
-            // interface and preserves the two-argument call on 1.0.5.
+            // Workmate 1.0.7+ passes an IConversationProgressListener as the 3rd argument,
+            // which fires onProgress(round, maxRounds) and onToolCallStart/End(toolNames) even
+            // when Workmate runs its own native tools rather than EDT-MCP's bridge.
             futureValue = invoke(sendAsync, facade,
-                sendAsyncArguments(sendAsync, request, cancellationToken));
+                sendAsyncArguments(sendAsync, request, cancellationToken, turnProgressListener));
         }
         catch (GatewayException e)
         {
@@ -1337,7 +1438,8 @@ public class WorkmateGateway
             // before the advertised budget ran out, and a floor of one second let an already
             // spent budget overshoot by one more.
             // The length may round; only "is there still time" must not (budgetSpent above).
-            sendResult = awaitTurn(future, Math.max(1L, remainingMillis(deadlineNanos)));
+            sendResult = awaitTurn(future, Math.max(1L, remainingMillis(deadlineNanos)),
+                turnTicks, nativeInFlight);
         }
         catch (TimeoutException e)
         {
@@ -1371,7 +1473,19 @@ public class WorkmateGateway
         {
             // The turn ran and then failed - on the FIRST send as much as on a continuation. Its
             // tools may already have changed the project, so neither may invite a blind retry.
-            throw dispatchedFailed(firstTurn, rootCauseMessage(e));
+            String causeMsg = rootCauseMessage(e);
+            long bridgeCalls = Math.max(0L, BridgeActivity.ticks() - bridgeBefore);
+            boolean partialChanges = !toolsCalled.isEmpty() || bridgeCalls > 0;
+            if (partialChanges || (causeMsg != null && causeMsg.contains("Too many tool rounds"))) //$NON-NLS-1$
+            {
+                causeMsg = causeMsg + " [partialChanges=" + partialChanges //$NON-NLS-1$
+                    + ", toolCalls=" + toolsCalled.size() //$NON-NLS-1$
+                    + ", bridgeCalls=" + bridgeCalls //$NON-NLS-1$
+                    + (toolsCalled.isEmpty() ? "" : ", toolsCalled=" + toolsCalled) //$NON-NLS-1$ //$NON-NLS-2$
+                    + " - check git status / project files before retrying, or pass a higher " //$NON-NLS-1$
+                    + "maxToolRounds in workmate_chat_send]"; //$NON-NLS-1$
+            }
+            throw dispatchedFailed(firstTurn, causeMsg);
         }
 
         if (sendResult == null)
@@ -1414,6 +1528,73 @@ public class WorkmateGateway
                 + "inspect Workmate and the project before starting the same request again."); //$NON-NLS-1$
         }
         return new Turn(text, reasoning, count, session);
+    }
+
+    /**
+     * Builds a reflective proxy for Workmate 1.0.7+'s {@code IConversationProgressListener},
+     * turning native tool rounds and assistant message progress into liveness signals for
+     * {@link #awaitTurn} and human-readable job milestones.
+     */
+    private static Object createProgressListenerProxy(Class<?> listenerClass,
+        AtomicLong turnTicks, AtomicInteger nativeInFlight, List<String> toolsCalled,
+        ProgressListener progress)
+    {
+        if (listenerClass == null || !listenerClass.isInterface())
+        {
+            return null;
+        }
+        return Proxy.newProxyInstance(listenerClass.getClassLoader(),
+            new Class<?>[] {listenerClass}, (proxy, method, args) -> {
+                String name = method.getName();
+                if ("onProgress".equals(name)) //$NON-NLS-1$
+                {
+                    turnTicks.incrementAndGet();
+                    return null;
+                }
+                if ("onToolCallStart".equals(name)) //$NON-NLS-1$
+                {
+                    turnTicks.incrementAndGet();
+                    nativeInFlight.incrementAndGet();
+                    if (args != null && args.length > 0 && args[0] != null)
+                    {
+                        if (args[0] instanceof Collection<?>)
+                        {
+                            for (Object tool : (Collection<?>)args[0])
+                            {
+                                if (tool != null)
+                                {
+                                    toolsCalled.add(String.valueOf(tool));
+                                }
+                            }
+                        }
+                        else
+                        {
+                            toolsCalled.add(String.valueOf(args[0]));
+                        }
+                        progress.onProgress("Workmate running tools: " + args[0]); //$NON-NLS-1$
+                    }
+                    return null;
+                }
+                if ("onToolCallEnd".equals(name)) //$NON-NLS-1$
+                {
+                    turnTicks.incrementAndGet();
+                    nativeInFlight.updateAndGet(v -> v > 0 ? v - 1 : 0);
+                    return null;
+                }
+                if ("toString".equals(name)) //$NON-NLS-1$
+                {
+                    return "EDT-MCP Workmate progress listener"; //$NON-NLS-1$
+                }
+                if ("hashCode".equals(name)) //$NON-NLS-1$
+                {
+                    return Integer.valueOf(System.identityHashCode(proxy));
+                }
+                if ("equals".equals(name)) //$NON-NLS-1$
+                {
+                    return Boolean.valueOf(proxy == (args != null && args.length > 0 ? args[0] : null));
+                }
+                return null;
+            });
     }
 
     /**
@@ -1471,9 +1652,16 @@ public class WorkmateGateway
     static Object awaitTurn(CompletableFuture<?> future, long budgetMillis)
         throws TimeoutException, InterruptedException, ExecutionException
     {
+        return awaitTurn(future, budgetMillis, null, null);
+    }
+
+    static Object awaitTurn(CompletableFuture<?> future, long budgetMillis,
+        AtomicLong turnTicks, AtomicInteger nativeInFlight)
+        throws TimeoutException, InterruptedException, ExecutionException
+    {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(budgetMillis);
         long lastActivity = System.nanoTime();
-        long seenCalls = BridgeActivity.ticks();
+        long seenCalls = BridgeActivity.ticks() + (turnTicks != null ? turnTicks.get() : 0L);
         AWAITED_TURNS.incrementAndGet();
         try
         {
@@ -1491,18 +1679,19 @@ public class WorkmateGateway
                 }
                 catch (TimeoutException stillRunning)
                 {
-                    long calls = BridgeActivity.ticks();
-                    // Either signal means "alive": a new call since the last look, or one that is
-                    // still running now. Without the second, a single long tool call - the very
-                    // case this timeout must not interrupt - would look like silence after its
-                    // one tick.
+                    long calls = BridgeActivity.ticks()
+                        + (turnTicks != null ? turnTicks.get() : 0L);
+                    boolean inFlight = BridgeActivity.inFlight() > 0
+                        || (nativeInFlight != null && nativeInFlight.get() > 0);
+                    // Either signal means "alive": a new call/progress event since the last look,
+                    // or a bridge/native tool call that is still running now.
                     //
                     // The third case is not evidence at all: while a second turn is awaited the
                     // signal cannot be attributed, so the clock does not RUN rather than merely
                     // not firing. Without this reset, the silence measured during the ambiguous
                     // stretch would be spent the instant the other turn ended, and the survivor
                     // would be cut without ever having been watched alone for a full window.
-                    if (calls != seenCalls || BridgeActivity.inFlight() > 0
+                    if (calls != seenCalls || inFlight
                         || !isOnlyAwaitedTurn())
                     {
                         seenCalls = calls;
@@ -1619,6 +1808,132 @@ public class WorkmateGateway
             return null;
         }
         return Integer.valueOf(total.intValue() + turnCount.intValue());
+    }
+
+    /**
+     * Serializes a {@code ConversationSession} into the portable cursor a stateful chat stores
+     * between MCP calls: {@code {"conversationId":...,"replyToMessageUuid":...}}. Both getters
+     * are probed reflectively; the second one is optional on some builds - an absent
+     * {@code getReplyToMessageUuid} yields an empty string rather than a failure, because the
+     * conversation id alone still identifies the cloud conversation.
+     *
+     * @param sessionClass the {@code ConversationSession} class
+     * @param session the session instance (not {@code null})
+     * @return the JSON cursor
+     * @throws GatewayException when a getter exists but its invocation fails
+     */
+    private static String sessionStateOf(Class<?> sessionClass, Object session)
+        throws GatewayException
+    {
+        String conversationId =
+            stringValue(invoke(requireMethod(sessionClass, "getConversationId"), session)); //$NON-NLS-1$
+        String replyTo = ""; //$NON-NLS-1$
+        try
+        {
+            replyTo = stringValue(
+                sessionClass.getMethod("getReplyToMessageUuid").invoke(session)); //$NON-NLS-1$
+        }
+        catch (NoSuchMethodException | SecurityException e) // NOSONAR an ABSENT optional getter is not a failure
+        {
+            // Optional on some Workmate builds; the conversation id alone still identifies
+            // the cloud conversation.
+        }
+        catch (IllegalAccessException | InvocationTargetException e)
+        {
+            throw GatewayException.incompatible("getReplyToMessageUuid on " //$NON-NLS-1$
+                + sessionClass.getName() + " failed: " + rootCauseMessage(e)); //$NON-NLS-1$
+        }
+        return "{\"conversationId\":\"" + escapeJson(conversationId) //$NON-NLS-1$
+            + "\",\"replyToMessageUuid\":\"" + escapeJson(replyTo) + "\"}"; //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    /**
+     * Rebuilds a {@code ConversationSession} from a stored cursor so the next message lands in
+     * the same cloud conversation. The two-argument public constructor is probed reflectively;
+     * Workmate 1.0.8 exposes {@code (conversationId, replyToMessageUuid)}.
+     *
+     * @param sessionClass the {@code ConversationSession} class
+     * @param sessionState the JSON cursor saved by {@link #sessionStateOf}
+     * @return the session instance to pass into the request constructor
+     * @throws GatewayException when the cursor is malformed or no two-argument constructor
+     *         exists on the installed Workmate
+     */
+    private static Object restoreSession(Class<?> sessionClass, String sessionState)
+        throws GatewayException
+    {
+        String conversationId = extractJsonField(sessionState, "conversationId"); //$NON-NLS-1$
+        String replyTo = extractJsonField(sessionState, "replyToMessageUuid"); //$NON-NLS-1$
+        Constructor<?> twoArg = null;
+        for (Constructor<?> constructor : sessionClass.getConstructors())
+        {
+            if (constructor.getParameterCount() == 2)
+            {
+                twoArg = constructor;
+                break;
+            }
+        }
+        if (twoArg == null)
+        {
+            throw GatewayException.incompatible("session restore looked for a public " //$NON-NLS-1$
+                + "2-argument constructor on " + sessionClass.getName() //$NON-NLS-1$
+                + "; detected public constructors: " + publicConstructorShapes(sessionClass)); //$NON-NLS-1$
+        }
+        return create(twoArg, conversationId, replyTo);
+    }
+
+    /**
+     * Reads one string field from the flat cursor JSON this adapter writes. Deliberately small:
+     * the cursor is produced by {@link #sessionStateOf} and never carries nesting or escapes
+     * beyond the ones {@link #escapeJson} undoes.
+     *
+     * @param json the cursor JSON
+     * @param field the field name
+     * @return the unescaped value, or an empty string when the field is absent
+     */
+    private static String extractJsonField(String json, String field)
+    {
+        String key = "\"" + field + "\":\""; //$NON-NLS-1$ //$NON-NLS-2$
+        int at = json.indexOf(key);
+        if (at < 0)
+        {
+            return ""; //$NON-NLS-1$
+        }
+        int from = at + key.length();
+        int end = json.indexOf('"', from);
+        if (end < 0)
+        {
+            return ""; //$NON-NLS-1$
+        }
+        StringBuilder value = new StringBuilder();
+        for (int i = from; i < end; i++)
+        {
+            char c = json.charAt(i);
+            if (c == '\\' && i + 1 < end)
+            {
+                i++;
+                value.append(json.charAt(i));
+            }
+            else
+            {
+                value.append(c);
+            }
+        }
+        return value.toString();
+    }
+
+    /**
+     * Escapes a value for inclusion between double quotes in the cursor JSON.
+     *
+     * @param value the raw value (may be {@code null})
+     * @return the escaped value
+     */
+    private static String escapeJson(String value)
+    {
+        if (value == null)
+        {
+            return ""; //$NON-NLS-1$
+        }
+        return value.replace("\\", "\\\\").replace("\"", "\\\""); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
     }
 
     /**
