@@ -6,6 +6,7 @@
 
 package com.ditrix.edt.mcp.server.tools.impl;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -29,6 +30,8 @@ import com.ditrix.edt.mcp.server.utils.WorkmateGateway;
 import com.ditrix.edt.mcp.server.utils.WorkmateGateway.GatewayException;
 import com.ditrix.edt.mcp.server.utils.WorkmateGateway.ProgressListener;
 import com.ditrix.edt.mcp.server.utils.WorkmateGateway.WorkmateResponse;
+import com.ditrix.edt.mcp.server.utils.WorkmateRulesResolver;
+import com.ditrix.edt.mcp.server.utils.WorkmateRulesResolver.RulesResolutionException;
 
 /** Starts questions sent through the co-located Workmate facade as background jobs. */
 public class AskWorkmateTool implements IMcpTool
@@ -61,6 +64,8 @@ public class AskWorkmateTool implements IMcpTool
     private static final String KEY_TIMEOUT_SECONDS = "timeoutSeconds"; //$NON-NLS-1$
     private static final String KEY_WAIT_SECONDS = "waitSeconds"; //$NON-NLS-1$
     private static final String KEY_MODE = "mode"; //$NON-NLS-1$
+    private static final String KEY_RULES_SOURCE = "rulesSource"; //$NON-NLS-1$
+    private static final String KEY_SKILLS = "skills"; //$NON-NLS-1$
 
     /** Returns Workmate's answer as text, through its one-shot conversation facade. */
     private static final String MODE_ANSWER = "answer"; //$NON-NLS-1$
@@ -81,21 +86,29 @@ public class AskWorkmateTool implements IMcpTool
 
     private final WorkmateGateway gateway;
     private final BackgroundJobs jobs;
+    private final WorkmateRulesResolver rulesResolver;
 
     public AskWorkmateTool()
     {
-        this(new WorkmateGateway(), BackgroundJobs.shared());
+        this(new WorkmateGateway(), BackgroundJobs.shared(), new WorkmateRulesResolver());
     }
 
     AskWorkmateTool(WorkmateGateway gateway)
     {
-        this(gateway, BackgroundJobs.shared());
+        this(gateway, BackgroundJobs.shared(), new WorkmateRulesResolver());
     }
 
     AskWorkmateTool(WorkmateGateway gateway, BackgroundJobs jobs)
     {
+        this(gateway, jobs, new WorkmateRulesResolver());
+    }
+
+    AskWorkmateTool(WorkmateGateway gateway, BackgroundJobs jobs,
+        WorkmateRulesResolver rulesResolver)
+    {
         this.gateway = gateway;
         this.jobs = jobs;
+        this.rulesResolver = rulesResolver;
     }
 
     @Override
@@ -194,6 +207,16 @@ public class AskWorkmateTool implements IMcpTool
                     + "happens there and its answer is rendered in the EDT chat panel for a " //$NON-NLS-1$
                     + "human, so it is NOT returned here. Prefer '" + MODE_ANSWER //$NON-NLS-1$
                     + "' unless a human should continue the conversation in the panel.") //$NON-NLS-1$
+            .stringProperty(KEY_RULES_SOURCE,
+                "Optional .workmate rules and skills source: omit or pass 'none' to attach " //$NON-NLS-1$
+                    + "nothing (default); pass 'standard' to load WORKMATE.md and the " //$NON-NLS-1$
+                    + "skill/command path catalogue from EDT's standard hierarchy (~/.workmate, " //$NON-NLS-1$
+                    + "<workspace>/.workmate, <project>/.workmate); or pass a custom directory " //$NON-NLS-1$
+                    + "path containing WORKMATE.md and skills/.") //$NON-NLS-1$
+            .stringArrayProperty(KEY_SKILLS,
+                "Optional list of skill names (e.g. [\"formy\", \"samoproverka\"]) whose " //$NON-NLS-1$
+                    + "SKILL.md content is eagerly inlined into the question so Workmate follows " //$NON-NLS-1$
+                    + "them immediately without spending Read tool rounds.") //$NON-NLS-1$
             .build();
     }
 
@@ -493,6 +516,20 @@ public class AskWorkmateTool implements IMcpTool
 
         final boolean chatMode = MODE_CHAT.equals(mode);
 
+        final String rulesSource = WorkmateRulesResolver.normalizeRulesSource(
+            JsonUtils.extractStringArgument(params, KEY_RULES_SOURCE));
+        final List<String> skills = WorkmateRulesResolver.normalizeSkills(
+            JsonUtils.extractArrayArgument(params, KEY_SKILLS));
+        final String rulesPreamble;
+        try
+        {
+            rulesPreamble = rulesResolver.resolvePreamble(rulesSource, skills, project);
+        }
+        catch (RulesResolutionException e)
+        {
+            return ToolResult.error(e.getMessage()).toJson();
+        }
+
         // The facade path knows nothing about the bridge, so it gets the preamble by default -
         // without it the model has no way to learn that EDT-MCP is reachable at all. The
         // agentic chat loads the project's own .workmate rules instead, which already carry
@@ -501,8 +538,10 @@ public class AskWorkmateTool implements IMcpTool
         // project that has no .workmate rules of its own.
         final boolean shareMcpTools =
             JsonUtils.extractBooleanArgument(params, KEY_SHARE_MCP_TOOLS, !chatMode);
-        final String jobQuestion =
-            shareMcpTools ? mcpBridgePreamble(projectName) + question : question;
+        final String enrichedQuestion = rulesPreamble + question;
+        final String jobQuestion = shareMcpTools
+            ? mcpBridgePreamble(projectName) + enrichedQuestion
+            : enrichedQuestion;
 
         final IProject jobProject = project;
         final int jobTimeoutSeconds = timeoutSeconds;

@@ -18,6 +18,8 @@ one through the stored conversation cursor, so Workmate sees the whole history.
 | waitSeconds | — | How long THIS call waits before returning the job snapshot (default 5, 0–45). Does not extend timeoutSeconds. |
 | shareMcpTools | — | Default true: prefix the message with instructions that let Workmate call EDT-MCP's own tools through the in-process bridge, so it can inspect the real project. |
 | maxToolRounds | — | Optional positive limit for Workmate's internal tool-call rounds for THIS send; overrides the chat's `maxToolRounds` (default `80`) when provided. |
+| rulesSource | — | Optional `.workmate` rules/skills source for THIS send: omit to inherit the chat's `rulesSource` (injected on the first send); `"none"` to suppress; `"standard"` for EDT's hierarchy (`~/.workmate`, `<workspace>/.workmate`, `<project>/.workmate`); or a custom directory path. |
+| skills | — | Optional array of skill names (e.g. `["formy", "samoproverka"]`) whose `SKILL.md` content is eagerly inlined into THIS send. |
 
 ## Examples
 

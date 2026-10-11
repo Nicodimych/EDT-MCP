@@ -6,6 +6,7 @@
 
 package com.ditrix.edt.mcp.server.tools.impl;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -28,6 +29,8 @@ import com.ditrix.edt.mcp.server.utils.WorkmateGateway;
 import com.ditrix.edt.mcp.server.utils.WorkmateGateway.GatewayException;
 import com.ditrix.edt.mcp.server.utils.WorkmateGateway.ProgressListener;
 import com.ditrix.edt.mcp.server.utils.WorkmateGateway.WorkmateResponse;
+import com.ditrix.edt.mcp.server.utils.WorkmateRulesResolver;
+import com.ditrix.edt.mcp.server.utils.WorkmateRulesResolver.RulesResolutionException;
 
 /**
  * Sends one user message into a stateful 1C:Workmate conversation as a background job.
@@ -52,21 +55,32 @@ public class WorkmateChatSendTool implements IMcpTool
     private static final String KEY_WAIT_SECONDS = "waitSeconds"; //$NON-NLS-1$
     private static final String KEY_SHARE_MCP_TOOLS = "shareMcpTools"; //$NON-NLS-1$
     private static final String KEY_MAX_TOOL_ROUNDS = "maxToolRounds"; //$NON-NLS-1$
+    private static final String KEY_RULES_SOURCE = "rulesSource"; //$NON-NLS-1$
+    private static final String KEY_SKILLS = "skills"; //$NON-NLS-1$
 
     private final WorkmateChatStore store;
     private final WorkmateGateway gateway;
     private final BackgroundJobs jobs;
+    private final WorkmateRulesResolver rulesResolver;
 
     public WorkmateChatSendTool()
     {
-        this(WorkmateChatStore.shared(), new WorkmateGateway(), BackgroundJobs.shared());
+        this(WorkmateChatStore.shared(), new WorkmateGateway(), BackgroundJobs.shared(),
+            new WorkmateRulesResolver());
     }
 
     WorkmateChatSendTool(WorkmateChatStore store, WorkmateGateway gateway, BackgroundJobs jobs)
     {
+        this(store, gateway, jobs, new WorkmateRulesResolver());
+    }
+
+    WorkmateChatSendTool(WorkmateChatStore store, WorkmateGateway gateway, BackgroundJobs jobs,
+        WorkmateRulesResolver rulesResolver)
+    {
         this.store = store;
         this.gateway = gateway;
         this.jobs = jobs;
+        this.rulesResolver = rulesResolver;
     }
 
     @Override
@@ -132,6 +146,17 @@ public class WorkmateChatSendTool implements IMcpTool
                 "Optional positive limit for Workmate's internal tool-call rounds for THIS " //$NON-NLS-1$
                     + "send; overrides the chat's maxToolRounds (default " //$NON-NLS-1$
                     + WorkmateChatCreateTool.DEFAULT_MAX_TOOL_ROUNDS + ") when provided.") //$NON-NLS-1$
+            .stringProperty(KEY_RULES_SOURCE,
+                "Optional .workmate rules and skills source for THIS send: omit to inherit the " //$NON-NLS-1$
+                    + "chat's rulesSource (injected automatically on the first send); pass " //$NON-NLS-1$
+                    + "'none' to suppress rules; pass 'standard' to load WORKMATE.md and the " //$NON-NLS-1$
+                    + "skill/command path catalogue from EDT's standard hierarchy (~/.workmate, " //$NON-NLS-1$
+                    + "<workspace>/.workmate, <project>/.workmate); or pass a custom directory " //$NON-NLS-1$
+                    + "path containing WORKMATE.md and skills/.") //$NON-NLS-1$
+            .stringArrayProperty(KEY_SKILLS,
+                "Optional list of skill names (e.g. [\"formy\", \"samoproverka\"]) whose " //$NON-NLS-1$
+                    + "SKILL.md content is eagerly inlined into THIS send so Workmate follows " //$NON-NLS-1$
+                    + "them immediately without spending Read tool rounds.") //$NON-NLS-1$
             .build();
     }
 
@@ -222,11 +247,40 @@ public class WorkmateChatSendTool implements IMcpTool
             project = context.project();
         }
 
+        final boolean firstTurn = chat.sessionState() == null;
+        final String rawSendRulesSource = trimToNull(
+            JsonUtils.extractStringArgument(params, KEY_RULES_SOURCE));
+        final String effectiveRulesSource = rawSendRulesSource != null
+            ? WorkmateRulesResolver.normalizeRulesSource(rawSendRulesSource)
+            : chat.rulesSource();
+        final boolean includeRulesAndCatalogue = rawSendRulesSource != null
+            ? effectiveRulesSource != null
+            : (firstTurn && effectiveRulesSource != null);
+        final List<String> sendSkills = WorkmateRulesResolver.normalizeSkills(
+            JsonUtils.extractArrayArgument(params, KEY_SKILLS));
+        final List<String> effectiveSkills = firstTurn
+            ? WorkmateRulesResolver.mergeSkills(chat.skills(), sendSkills)
+            : sendSkills;
+
+        final String rulesPreamble;
+        try
+        {
+            rulesPreamble = rulesResolver.resolvePreamble(effectiveRulesSource,
+                includeRulesAndCatalogue, effectiveSkills, project);
+        }
+        catch (RulesResolutionException e)
+        {
+            chat.releaseSend();
+            return ToolResult.error(e.getMessage()).toJson();
+        }
+
         final boolean shareMcpTools =
             JsonUtils.extractBooleanArgument(params, KEY_SHARE_MCP_TOOLS, true);
         final IProject jobProject = project;
-        final String jobMessage =
-            shareMcpTools ? AskWorkmateTool.mcpBridgePreamble(projectName) + message : message;
+        final String enrichedMessage = rulesPreamble + message;
+        final String jobMessage = shareMcpTools
+            ? AskWorkmateTool.mcpBridgePreamble(projectName) + enrichedMessage
+            : enrichedMessage;
         final String jobTimeoutMessage = message;
         final int jobTimeoutSeconds = timeoutSeconds;
         final Integer jobMaxToolRounds = effectiveMaxToolRounds;

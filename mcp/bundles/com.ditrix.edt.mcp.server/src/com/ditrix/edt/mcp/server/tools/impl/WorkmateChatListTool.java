@@ -74,9 +74,9 @@ public class WorkmateChatListTool implements IMcpTool
             .booleanProperty("success", "True when the list was read.", true) //$NON-NLS-1$ //$NON-NLS-2$
             .objectArrayProperty("chats", //$NON-NLS-1$
                 "Known chats, most recently updated first: {chatId, title, projectName, " //$NON-NLS-1$
-                    + "skillName, turns, lastTurnStatus (none/running/done/failed), hasUnread, " //$NON-NLS-1$
-                    + "lastJobId, activeJobId, hasSessionCursor, sendInFlight, " //$NON-NLS-1$
-                    + "createdAtMillis, updatedAtMillis}.") //$NON-NLS-1$
+                    + "skillName, rulesSource, skills, turns, lastTurnStatus " //$NON-NLS-1$
+                    + "(none/running/done/failed), hasUnread, lastJobId, activeJobId, " //$NON-NLS-1$
+                    + "hasSessionCursor, sendInFlight, createdAtMillis, updatedAtMillis}.") //$NON-NLS-1$
             .stringProperty("note", "Usage note about chat persistence.") //$NON-NLS-1$ //$NON-NLS-2$
             .build();
     }
@@ -107,6 +107,8 @@ public class WorkmateChatListTool implements IMcpTool
             entry.put("title", chat.title()); //$NON-NLS-1$
             entry.put("projectName", chat.projectName()); //$NON-NLS-1$
             entry.put("skillName", chat.skillName()); //$NON-NLS-1$
+            entry.put("rulesSource", chat.rulesSource()); //$NON-NLS-1$
+            entry.put("skills", chat.skills()); //$NON-NLS-1$
             entry.put("turns", Integer.valueOf(chat.turns().size())); //$NON-NLS-1$
             entry.put("lastTurnStatus", chat.lastTurnStatus()); //$NON-NLS-1$
             entry.put("hasUnread", Boolean.valueOf(chat.hasUnread())); //$NON-NLS-1$

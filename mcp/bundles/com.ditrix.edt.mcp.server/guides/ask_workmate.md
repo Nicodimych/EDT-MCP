@@ -52,6 +52,15 @@
   and there is no `mode="tool"` value.
 - `workmateArgs` carries that tool's arguments as a JSON object, for example
   `{}` or `{"scope":"eclipse","code":"..."}`. Defaults to an empty object.
+- `rulesSource` optionally attaches `.workmate` rules and a skill/command file
+  path catalogue (`Read`-compatible absolute paths) before the question: omit or
+  pass `none` to attach nothing (default); pass `standard` to load `WORKMATE.md`
+  and index `skills/*/SKILL.md` and `commands/*.md` across `~/.workmate`,
+  `<workspace>/.workmate`, and `<project>/.workmate`; or pass a custom directory
+  path on disk.
+- `skills` optionally lists skill names (e.g. `["formy", "samoproverka"]`) whose
+  `SKILL.md` content is eagerly inlined into the question so Workmate follows
+  them immediately without spending `Read` tool rounds.
 
 ## Examples
 

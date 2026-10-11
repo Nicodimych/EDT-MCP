@@ -16,15 +16,19 @@ memory and is lost when EDT restarts.
 | skillName | — | Workmate skill for every send. Omit to use `custom` (Workmate's own tool loop); `raw` answers from the model alone. |
 | maxToolRounds | — | Positive limit for Workmate's internal tool-call rounds, applied to every send unless overridden in `workmate_chat_send` (default `80`). |
 | title | — | Human-readable label, returned by `workmate_chat_list`. |
+| rulesSource | — | Optional `.workmate` rules/skills source attached on the first send of this chat: omit or `"none"` to attach nothing; `"standard"` to load `WORKMATE.md` and the skill/command path catalogue from `~/.workmate`, `<workspace>/.workmate`, and `<project>/.workmate`; or a custom directory path. |
+| skills | — | Optional array of skill names (e.g. `["formy", "samoproverka"]`) whose `SKILL.md` content is eagerly inlined into the first send of this chat. |
 
 ## Examples
 
-Create a chat over an open project:
+Create a chat over an open project with standard `.workmate` rules and eager skills:
 
 ```json
 {
   "projectName": "MyConfiguration",
-  "title": "Refactoring research"
+  "title": "Wave 11 - Forms",
+  "rulesSource": "standard",
+  "skills": ["formy", "samoproverka"]
 }
 ```
 

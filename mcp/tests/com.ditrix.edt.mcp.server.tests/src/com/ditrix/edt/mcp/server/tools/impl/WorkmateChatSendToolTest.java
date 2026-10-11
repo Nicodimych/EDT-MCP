@@ -248,6 +248,86 @@ public class WorkmateChatSendToolTest
         assertErrorContains(rejected, "maxToolRounds must be a positive integer"); //$NON-NLS-1$
     }
 
+    @Test
+    public void testSendInjectsRulesOnFirstTurnAndTurnSpecificSkillsOnFollowUp() throws Exception
+    {
+        java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("wm-rules-test"); //$NON-NLS-1$
+        try
+        {
+            java.nio.file.Path wmDir = java.nio.file.Files.createDirectories(
+                tempDir.resolve(".workmate")); //$NON-NLS-1$
+            java.nio.file.Files.writeString(wmDir.resolve("WORKMATE.md"), //$NON-NLS-1$
+                "GLOBAL_WORKMATE_RULES_MARKER", java.nio.charset.StandardCharsets.UTF_8); //$NON-NLS-1$
+            java.nio.file.Path samoDir = java.nio.file.Files.createDirectories(
+                wmDir.resolve("skills/samoproverka")); //$NON-NLS-1$
+            java.nio.file.Files.writeString(samoDir.resolve("SKILL.md"), //$NON-NLS-1$
+                "SAMOPROVERKA_SKILL_BODY", java.nio.charset.StandardCharsets.UTF_8); //$NON-NLS-1$
+            java.nio.file.Path skdDir = java.nio.file.Files.createDirectories(
+                wmDir.resolve("skills/skd")); //$NON-NLS-1$
+            java.nio.file.Files.writeString(skdDir.resolve("SKILL.md"), //$NON-NLS-1$
+                "SKD_SKILL_BODY", java.nio.charset.StandardCharsets.UTF_8); //$NON-NLS-1$
+
+            WorkmateChatStore store = new WorkmateChatStore();
+            List<String> questionsSent = new ArrayList<>();
+            WorkmateGateway gateway = new WorkmateGateway()
+            {
+                @Override
+                public WorkmateResponse askWithSession(IProject project, String sessionState,
+                    String question, Integer maxToolRounds, String skillName, long timeoutMillis,
+                    ProgressListener progress)
+                {
+                    questionsSent.add(question);
+                    return new WorkmateResponse("done", null, null, 0, true, false, true, //$NON-NLS-1$
+                        "{\"conversationId\":\"c1\",\"replyToMessageUuid\":\"u" //$NON-NLS-1$
+                            + questionsSent.size() + "\"}"); //$NON-NLS-1$
+                }
+            };
+            com.ditrix.edt.mcp.server.utils.WorkmateRulesResolver resolver =
+                new com.ditrix.edt.mcp.server.utils.WorkmateRulesResolver(tempDir, null);
+            Harness harness = new Harness(store, gateway, resolver);
+            harnesses.add(harness);
+
+            Map<String, String> createParams = new HashMap<>();
+            createParams.put("rulesSource", "standard"); //$NON-NLS-1$ //$NON-NLS-2$
+            createParams.put("skills", "[\"samoproverka\"]"); //$NON-NLS-1$ //$NON-NLS-2$
+            String createdJson = harness.createTool.execute(createParams);
+            assertTrue(createdJson.contains("\"success\":true")); //$NON-NLS-1$
+            String chatId = extractJsonString(createdJson, "chatId"); //$NON-NLS-1$
+
+            // Turn 1: should include WORKMATE.md + skill catalogue + samoproverka skill body
+            String turn1 = harness.sendTool.execute(
+                paramsOf("chatId", chatId, "message", "Wave 1")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            assertJobStatus(turn1, "done"); //$NON-NLS-1$
+            assertEquals(1, questionsSent.size());
+            assertTrue(questionsSent.get(0).contains("GLOBAL_WORKMATE_RULES_MARKER")); //$NON-NLS-1$
+            assertTrue(questionsSent.get(0).contains("SAMOPROVERKA_SKILL_BODY")); //$NON-NLS-1$
+            assertFalse(questionsSent.get(0).contains("SKD_SKILL_BODY")); //$NON-NLS-1$
+
+            // Turn 2 with turn-specific skill ["skd"]: should inline skd without repeating WORKMATE.md
+            Map<String, String> turn2Params =
+                paramsOf("chatId", chatId, "message", "Wave 2 SKD"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            turn2Params.put("skills", "[\"skd\"]"); //$NON-NLS-1$ //$NON-NLS-2$
+            String turn2 = harness.sendTool.execute(turn2Params);
+            assertJobStatus(turn2, "done"); //$NON-NLS-1$
+            assertEquals(2, questionsSent.size());
+            assertFalse("WORKMATE.md must not be repeated on turn 2", //$NON-NLS-1$
+                questionsSent.get(1).contains("GLOBAL_WORKMATE_RULES_MARKER")); //$NON-NLS-1$
+            assertTrue("Turn-specific skill is inlined on turn 2", //$NON-NLS-1$
+                questionsSent.get(1).contains("SKD_SKILL_BODY")); //$NON-NLS-1$
+
+            // Journal history keeps only the clean user message text
+            String history =
+                new WorkmateChatHistoryTool(store).execute(paramsOf("chatId", chatId)); //$NON-NLS-1$
+            assertFalse(history.contains("GLOBAL_WORKMATE_RULES_MARKER")); //$NON-NLS-1$
+        }
+        finally
+        {
+            java.nio.file.Files.walk(tempDir)
+                .sorted(java.util.Comparator.reverseOrder())
+                .forEach(p -> p.toFile().delete());
+        }
+    }
+
     /** Bundles the chat tools over one store and one job registry for a test. */
     static final class Harness implements AutoCloseable
     {
@@ -258,10 +338,16 @@ public class WorkmateChatSendToolTest
 
         Harness(WorkmateChatStore store, WorkmateGateway gateway)
         {
+            this(store, gateway, new com.ditrix.edt.mcp.server.utils.WorkmateRulesResolver());
+        }
+
+        Harness(WorkmateChatStore store, WorkmateGateway gateway,
+            com.ditrix.edt.mcp.server.utils.WorkmateRulesResolver resolver)
+        {
             this.store = store;
             this.jobs = new BackgroundJobs(20, 2);
-            this.createTool = new WorkmateChatCreateTool(store);
-            this.sendTool = new WorkmateChatSendTool(store, gateway, jobs);
+            this.createTool = new WorkmateChatCreateTool(store, resolver);
+            this.sendTool = new WorkmateChatSendTool(store, gateway, jobs, resolver);
         }
 
         @Override

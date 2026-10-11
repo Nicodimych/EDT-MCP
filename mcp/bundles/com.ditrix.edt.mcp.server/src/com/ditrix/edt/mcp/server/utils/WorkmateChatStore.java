@@ -126,8 +126,26 @@ public final class WorkmateChatStore
     public ChatRecord create(String projectName, String skillName, Integer maxToolRounds,
         String title)
     {
+        return create(projectName, skillName, maxToolRounds, title, null, null);
+    }
+
+    /**
+     * Creates a local chat record with optional {@code .workmate} rules source and default skills.
+     *
+     * @param projectName optional EDT project name the chat runs in (may be {@code null})
+     * @param skillName optional Workmate skill (may be {@code null} to use the gateway default)
+     * @param maxToolRounds optional Workmate tool-round limit (may be {@code null})
+     * @param title optional human-readable label
+     * @param rulesSource optional rules source ({@code "standard"} or a custom directory path)
+     * @param skills optional list of skill names to inline on the first turn
+     * @return the new record, already registered
+     */
+    public ChatRecord create(String projectName, String skillName, Integer maxToolRounds,
+        String title, String rulesSource, List<String> skills)
+    {
         ChatRecord record = new ChatRecord(this, UUID.randomUUID().toString(), projectName,
-            skillName, maxToolRounds, title, System.currentTimeMillis(),
+            skillName, maxToolRounds, title, WorkmateRulesResolver.normalizeRulesSource(rulesSource),
+            WorkmateRulesResolver.normalizeSkills(skills), System.currentTimeMillis(),
             System.currentTimeMillis());
         synchronized (chats)
         {
@@ -314,6 +332,8 @@ public final class WorkmateChatStore
         private final String skillName;
         private final Integer maxToolRounds;
         private final String title;
+        private final String rulesSource;
+        private final List<String> skills;
         private final long createdAtMillis;
         private final List<TurnRecord> turns = Collections.synchronizedList(new ArrayList<>());
 
@@ -334,12 +354,13 @@ public final class WorkmateChatStore
         ChatRecord(String chatId, String projectName, String skillName, Integer maxToolRounds,
             String title)
         {
-            this(null, chatId, projectName, skillName, maxToolRounds, title,
-                System.currentTimeMillis(), System.currentTimeMillis());
+            this(null, chatId, projectName, skillName, maxToolRounds, title, null,
+                Collections.emptyList(), System.currentTimeMillis(), System.currentTimeMillis());
         }
 
         ChatRecord(WorkmateChatStore owner, String chatId, String projectName, String skillName,
-            Integer maxToolRounds, String title, long createdAtMillis, long updatedAtMillis)
+            Integer maxToolRounds, String title, String rulesSource, List<String> skills,
+            long createdAtMillis, long updatedAtMillis)
         {
             this.owner = owner;
             this.chatId = chatId;
@@ -347,6 +368,8 @@ public final class WorkmateChatStore
             this.skillName = skillName;
             this.maxToolRounds = maxToolRounds;
             this.title = title;
+            this.rulesSource = WorkmateRulesResolver.normalizeRulesSource(rulesSource);
+            this.skills = WorkmateRulesResolver.normalizeSkills(skills);
             this.createdAtMillis = createdAtMillis;
             this.updatedAtMillis = updatedAtMillis;
         }
@@ -374,6 +397,16 @@ public final class WorkmateChatStore
         public String title()
         {
             return title;
+        }
+
+        public String rulesSource()
+        {
+            return rulesSource;
+        }
+
+        public List<String> skills()
+        {
+            return skills;
         }
 
         public long createdAtMillis()
@@ -585,6 +618,19 @@ public final class WorkmateChatStore
             {
                 obj.addProperty("title", title); //$NON-NLS-1$
             }
+            if (rulesSource != null)
+            {
+                obj.addProperty("rulesSource", rulesSource); //$NON-NLS-1$
+            }
+            if (skills != null && !skills.isEmpty())
+            {
+                JsonArray skillsArr = new JsonArray();
+                for (String s : skills)
+                {
+                    skillsArr.add(s);
+                }
+                obj.add("skills", skillsArr); //$NON-NLS-1$
+            }
             obj.addProperty("createdAtMillis", Long.valueOf(createdAtMillis)); //$NON-NLS-1$
             obj.addProperty("updatedAtMillis", Long.valueOf(updatedAtMillis)); //$NON-NLS-1$
             if (sessionState != null)
@@ -624,11 +670,25 @@ public final class WorkmateChatStore
             }
             long created = optLong(obj, "createdAtMillis", System.currentTimeMillis()); //$NON-NLS-1$
             long updated = optLong(obj, "updatedAtMillis", created); //$NON-NLS-1$
+            List<String> loadedSkills = new ArrayList<>();
+            JsonArray skillsArr = obj.getAsJsonArray("skills"); //$NON-NLS-1$
+            if (skillsArr != null)
+            {
+                for (JsonElement el : skillsArr)
+                {
+                    if (el != null && el.isJsonPrimitive())
+                    {
+                        loadedSkills.add(el.getAsString());
+                    }
+                }
+            }
             ChatRecord record = new ChatRecord(owner, id,
                 optString(obj, "projectName"), //$NON-NLS-1$
                 optString(obj, "skillName"), //$NON-NLS-1$
                 optInt(obj, "maxToolRounds"), //$NON-NLS-1$
                 optString(obj, "title"), //$NON-NLS-1$
+                optString(obj, "rulesSource"), //$NON-NLS-1$
+                loadedSkills,
                 created, updated);
             record.sessionState = optString(obj, "sessionState"); //$NON-NLS-1$
             record.hasUnread = optBoolean(obj, "hasUnread", false); //$NON-NLS-1$
