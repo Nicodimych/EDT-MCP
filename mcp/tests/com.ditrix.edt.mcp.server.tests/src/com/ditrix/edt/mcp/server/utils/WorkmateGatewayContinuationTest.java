@@ -297,4 +297,41 @@ public class WorkmateGatewayContinuationTest
         assertTrue(WorkmateGateway.needsContinuation(
             "Partial text\n[Response interrupted by APM]")); //$NON-NLS-1$
     }
+
+    @Test
+    public void testTrailingOpenColonNeedsContinuationEvenWhenLongerThan400Chars()
+    {
+        StringBuilder longPlan = new StringBuilder();
+        while (longPlan.length() <= 450)
+        {
+            longPlan.append(
+                "\u0420\u0430\u0437\u043E\u0431\u0440\u0430\u043B \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0443 \u043C\u043E\u0434\u0443\u043B\u044F \u0438 \u043F\u0440\u043E\u0432\u0435\u0440\u0438\u043B \u0432\u0441\u0435 \u0432\u044B\u0437\u043E\u0432\u044B. "); //$NON-NLS-1$
+        }
+        longPlan.append(
+            "\u0422\u0435\u043F\u0435\u0440\u044C \u0432\u043D\u043E\u0448\u0443 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u044F:"); //$NON-NLS-1$
+        assertTrue(WorkmateGateway.needsContinuation(longPlan.toString()));
+        assertTrue(WorkmateGateway.needsContinuation("Here is the next tool call:\"")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void testRawToolCallJsonNeedsContinuation()
+    {
+        assertTrue(WorkmateGateway.needsContinuation(
+            "{\"tool\": \"JShell\", \"code\": \"1 + 1\"}")); //$NON-NLS-1$
+        assertTrue(WorkmateGateway.needsContinuation(
+            "```json\n{\"name\": \"search_objects\", \"arguments\": {\"query\": \"Test\"}}\n```")); //$NON-NLS-1$
+        assertFalse(WorkmateGateway.needsContinuation(
+            "{\"result\": \"ok\", \"count\": 5}")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void testWorkmate108AutoContinueRussianMarkers()
+    {
+        assertTrue(WorkmateGateway.needsContinuation(
+            "\u0421\u0435\u0439\u0447\u0430\u0441 \u043F\u043E\u043F\u0440\u043E\u0431\u0443\u044E \u043D\u0430\u0439\u0442\u0438 \u043C\u043E\u0434\u0443\u043B\u044C.")); //$NON-NLS-1$
+        assertTrue(WorkmateGateway.needsContinuation(
+            "\u0414\u0430\u043B\u0435\u0435 \u044F \u0438\u0441\u043F\u0440\u0430\u0432\u043B\u044E \u043E\u0448\u0438\u0431\u043A\u0443 \u0432 \u043C\u0435\u0442\u043E\u0434\u0435.")); //$NON-NLS-1$
+        assertTrue(WorkmateGateway.needsContinuation(
+            "\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u0448\u0430\u0433 \u2014 \u043D\u0443\u0436\u043D\u043E \u0432\u044B\u0437\u0432\u0430\u0442\u044C jshell.")); //$NON-NLS-1$
+    }
 }

@@ -12,6 +12,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
+import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -21,8 +22,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -72,6 +78,13 @@ public class WorkmateGateway
     private static final String CONTEXT_BUNDLE = "com.e1c.edt.ai.context"; //$NON-NLS-1$
 
     private static final String BASE_ACTIVATOR = "com.e1c.edt.ai.ui.BaseActivator"; //$NON-NLS-1$
+    private static final String IDE_API_HANDLER = "com.e1c.edt.ai.ui.IdeApiHandler"; //$NON-NLS-1$
+    private static final String SKILL_REGISTRY = "com.e1c.edt.ai.skills.ISkillRegistry"; //$NON-NLS-1$
+    private static final String SKILL_EXECUTOR = "com.e1c.edt.ai.skills.ISkillExecutor"; //$NON-NLS-1$
+    private static final String SKILL_REPOSITORY = "com.e1c.edt.ai.skills.ISkillRepository"; //$NON-NLS-1$
+    private static final String SKILL_MD_PARSER = "com.e1c.edt.ai.skills.ISkillMdParser"; //$NON-NLS-1$
+    private static final String SKILL_EXECUTION_REQUEST =
+        "com.e1c.edt.ai.skills.model.SkillExecutionRequest"; //$NON-NLS-1$
     private static final String CONVERSATION_FACADE = "com.e1c.edt.ai.ConversationFacade"; //$NON-NLS-1$
     private static final String PROJECT_ID = "com.e1c.edt.ai.assistent.model.ProjectId"; //$NON-NLS-1$
     private static final String CONVERSATION_SESSION =
@@ -97,20 +110,18 @@ public class WorkmateGateway
     private static final int MAX_CONTINUATIONS = 5;
 
     /**
-     * The nudge sent as the continuation message. It is Russian because it is addressed to
-     * Workmate's model, whose conversation runs in the IDE language — it is data for that model,
-     * not surface text. Same intent as {@code DevAutopilot}'s own continuation prompt (answer with
-     * the result, not with a plan), with one deliberate difference: it does NOT order a tool call.
-     * Measured live, "continue with tools" kept a model that wanted a documentation search — a
-     * tool this toolset does not have — announcing that search five times over. Naming the escape
-     * hatch instead ("if the tool you need is unavailable, answer from your own knowledge") is
-     * what turns the last continuation into an answer.
+     * The nudge sent as the continuation message. Combines Workmate 1.0.8 {@code AutoContinuePolicy}'s
+     * instruction to execute a real tool call when work remains (and never print raw JSON as text)
+     * with the escape hatch for unavailable tools so a documentation-only turn can still finish.
      */
     private static final String CONTINUATION_PROMPT =
-        "\u041E\u0442\u0432\u0435\u0442\u044C \u043D\u0430 \u0438\u0441\u0445\u043E\u0434\u043D\u044B\u0439 \u0432\u043E\u043F\u0440\u043E\u0441 \u0418\u0422\u041E\u0413\u041E\u0412\u042B\u041C \u0442\u0435\u043A\u0441\u0442\u043E\u043C " //$NON-NLS-1$
-        + "\u043F\u0440\u044F\u043C\u043E \u0441\u0435\u0439\u0447\u0430\u0441. \u041D\u0435 \u043E\u043F\u0438\u0441\u044B\u0432\u0430\u0439 \u043D\u0430\u043C\u0435\u0440\u0435\u043D\u0438\u044F \u0438 \u043D\u0435 \u043F\u0438\u0448\u0438 " //$NON-NLS-1$
-        + "\u043F\u043B\u0430\u043D. \u0415\u0441\u043B\u0438 \u043D\u0443\u0436\u043D\u044B\u0439 \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442 \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D, " //$NON-NLS-1$
-        + "\u043E\u0442\u0432\u0435\u0442\u044C \u0438\u0437 \u0441\u043E\u0431\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0445 \u0437\u043D\u0430\u043D\u0438\u0439."; //$NON-NLS-1$
+        "\u041D\u0435 \u043E\u0441\u0442\u0430\u043D\u0430\u0432\u043B\u0438\u0432\u0430\u0439\u0441\u044F \u043D\u0430 \u043F\u0440\u043E\u043C\u0435\u0436\u0443\u0442\u043E\u0447\u043D\u043E\u043C \u0448\u0430\u0433\u0435 \u0438 \u043D\u0435 \u043E\u043F\u0438\u0441\u044B\u0432\u0430\u0439 \u043D\u0430\u043C\u0435\u0440\u0435\u043D\u0438\u044F. " //$NON-NLS-1$
+        + "\u0415\u0441\u043B\u0438 \u0434\u043B\u044F \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u0438\u044F \u0437\u0430\u0434\u0430\u0447\u0438 \u043D\u0443\u0436\u043D\u043E \u0432\u044B\u0437\u0432\u0430\u0442\u044C \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442 \u2014 " //$NON-NLS-1$
+        + "\u0432\u044B\u0437\u043E\u0432\u0438 \u0435\u0433\u043E \u043F\u0440\u044F\u043C\u043E \u0441\u0435\u0439\u0447\u0430\u0441 (\u0447\u0435\u0440\u0435\u0437 \u0440\u0435\u0430\u043B\u044C\u043D\u044B\u0439 tool call, " //$NON-NLS-1$
+        + "\u043D\u0435 \u043F\u0438\u0448\u0438 \u0441\u044B\u0440\u043E\u0439 JSON \u0432 \u0442\u0435\u043A\u0441\u0442 \u043E\u0442\u0432\u0435\u0442\u0430). " //$NON-NLS-1$
+        + "\u0415\u0441\u043B\u0438 \u0432\u0441\u044F \u0440\u0430\u0431\u043E\u0442\u0430 \u0443\u0436\u0435 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u0430 \u0438\u043B\u0438 \u043D\u0443\u0436\u043D\u044B\u0439 \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442 " //$NON-NLS-1$
+        + "\u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D \u2014 \u043E\u0442\u0432\u0435\u0442\u044C \u0418\u0422\u041E\u0413\u041E\u0412\u042B\u041C \u0442\u0435\u043A\u0441\u0442\u043E\u043C (\u0438\u0437 \u0441\u043E\u0431\u0441\u0442\u0432\u0435\u043D\u043D\u044B\u0445 \u0437\u043D\u0430\u043D\u0438\u0439, " //$NON-NLS-1$
+        + "\u0435\u0441\u043B\u0438 \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442\u0430 \u043D\u0435\u0442)."; //$NON-NLS-1$
 
     /**
      * Above this length an answer is taken at face value. An announcement of intent is short by
@@ -214,6 +225,15 @@ public class WorkmateGateway
         "\u043F\u0440\u043E\u0432\u0435\u0440\u044E", // проверю //$NON-NLS-1$
         "\u0441\u043E\u0437\u0434\u0430\u043C", // создам //$NON-NLS-1$
         "\u043D\u0430\u0447\u043D\u0443", // начну //$NON-NLS-1$
+        "\u043F\u0440\u043E\u0434\u043E\u043B\u0436\u0443", // продолжу //$NON-NLS-1$
+        "\u043F\u043E\u043F\u0440\u043E\u0431\u0443\u044E", // попробую //$NON-NLS-1$
+        "\u043F\u043E\u043F\u044B\u0442\u0430\u044E\u0441\u044C", // попытаюсь //$NON-NLS-1$
+        "\u0432\u043D\u0435\u0441\u0443", // внесу //$NON-NLS-1$
+        "\u0438\u0441\u043F\u0440\u0430\u0432\u043B\u044E", // исправлю //$NON-NLS-1$
+        "\u0432\u044B\u043F\u043E\u043B\u043D\u044E", // выполню //$NON-NLS-1$
+        "\u0434\u0430\u043B\u0435\u0435 \u044F", // далее я //$NON-NLS-1$
+        "\u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u0448\u0430\u0433", // следующий шаг //$NON-NLS-1$
+        "\u043D\u0443\u0436\u043D\u043E \u0432\u044B\u0437\u0432\u0430\u0442\u044C jshell", // нужно вызвать jshell //$NON-NLS-1$
         // Analytic future, restricted to an action verb for the same reason "let me" is:
         // the bare auxiliary also opens finished statements ("I will be glad to help").
         "\u0431\u0443\u0434\u0443 \u0438\u0441\u043A\u0430\u0442\u044C", // буду искать //$NON-NLS-1$
@@ -290,6 +310,42 @@ public class WorkmateGateway
                     && parameters[4] == String.class
                     && parameters[5] == Boolean.class
                     && parameters[6] == Integer.class)
+                {
+                    return constructor;
+                }
+            }
+        }
+        catch (RuntimeException | LinkageError e) // NOSONAR a failed probe is reported by its caller
+        {
+            return null;
+        }
+        return null;
+    }
+
+    /**
+     * Finds the nine-argument conversation request introduced in Workmate 1.0.8
+     * {@code (IProject, String, ConversationSession, boolean, String, Boolean, Integer, Set, SkillCompletionPolicy)}.
+     *
+     * @param requestClass installed request class
+     * @param sessionClass installed conversation-session class
+     * @return the matching public 9-argument constructor, or {@code null}
+     */
+    static Constructor<?> findExtendedConversationRequestConstructor(Class<?> requestClass,
+        Class<?> sessionClass)
+    {
+        try
+        {
+            for (Constructor<?> constructor : requestClass.getConstructors())
+            {
+                Class<?>[] parameters = constructor.getParameterTypes();
+                if (parameters.length == 9
+                    && parameters[1] == String.class
+                    && parameters[2] == sessionClass
+                    && parameters[3] == boolean.class
+                    && parameters[4] == String.class
+                    && parameters[5] == Boolean.class
+                    && parameters[6] == Integer.class
+                    && parameters[7] == Set.class)
                 {
                     return constructor;
                 }
@@ -729,6 +785,21 @@ public class WorkmateGateway
         }
 
         /**
+         * Whether Workmate paused to ask the caller a clarifying question (ends with {@code ?}
+         * without a final completion marker) rather than completing the task.
+         *
+         * @return {@code true} when the response is an accepted clarifying question awaiting user input
+         */
+        public boolean isAwaitingUserReply()
+        {
+            if (declaredFinal || !answerAccepted || wentQuiet || text == null)
+            {
+                return false;
+            }
+            return text.trim().endsWith("?"); //$NON-NLS-1$
+        }
+
+        /**
          * The conversation cursor after this call, serialized as
          * {@code {"conversationId":...,"replyToMessageUuid":...}}. It is what lets the NEXT
          * user message land in the SAME cloud conversation instead of starting a new one.
@@ -858,6 +929,11 @@ public class WorkmateGateway
                 findConversationRequestConstructor(requestClass, sessionClass);
             if (requestConstructor == null)
             {
+                requestConstructor =
+                    findExtendedConversationRequestConstructor(requestClass, sessionClass);
+            }
+            if (requestConstructor == null)
+            {
                 throw GatewayException.incompatible("constructor probe for '" //$NON-NLS-1$
                     + requestClass.getName() + "' looked for public " //$NON-NLS-1$
                     + "(X,java.lang.String," + sessionClass.getName() //$NON-NLS-1$
@@ -913,23 +989,28 @@ public class WorkmateGateway
             int continuations = 0;
             while (true)
             {
-                Object request = create(requestConstructor, requestProject,
-                    message + FINALITY_INSTRUCTION, session,
-                    session == null,
-                    // chat = FALSE matches Workmate's OWN default (ConversationFacade maps a null
-                    // getChat() to false), and it is NOT what decides whether Workmate works the
-                    // task with its tools: with TRUE and with FALSE alike, a "raw" request came
-                    // back in ~1.2 s with assistantMessages = 1 and no tool round at all.
-                    //
-                    // The SKILL is what decides it, measured live against Workmate 1.0.5. Under
-                    // ConversationFacade's own default "raw" the cloud answers from the model
-                    // alone. Under DEFAULT_SKILL the same facade runs Workmate's full tool loop:
-                    // the model called JShellManual, JShellSession and JShell, reached this plugin
-                    // through IEdtMcpBridge and answered from real EDT-MCP output (7 assistant
-                    // messages). Not every name is accepted - "chat"/"agent"/"git-review" are
-                    // refused by the cloud with "Failed to create conversation" in ~35 ms - so do
-                    // not treat this as a free-form field.
-                    effectiveSkill, Boolean.FALSE, maxToolRounds);
+                Object request = requestConstructor.getParameterCount() == 9
+                    ? create(requestConstructor, requestProject,
+                        message + FINALITY_INSTRUCTION, session,
+                        session == null, effectiveSkill, Boolean.FALSE, maxToolRounds,
+                        null, null)
+                    : create(requestConstructor, requestProject,
+                        message + FINALITY_INSTRUCTION, session,
+                        session == null,
+                        // chat = FALSE matches Workmate's OWN default (ConversationFacade maps a null
+                        // getChat() to false), and it is NOT what decides whether Workmate works the
+                        // task with its tools: with TRUE and with FALSE alike, a "raw" request came
+                        // back in ~1.2 s with assistantMessages = 1 and no tool round at all.
+                        //
+                        // The SKILL is what decides it, measured live against Workmate 1.0.5. Under
+                        // ConversationFacade's own default "raw" the cloud answers from the model
+                        // alone. Under DEFAULT_SKILL the same facade runs Workmate's full tool loop:
+                        // the model called JShellManual, JShellSession and JShell, reached this plugin
+                        // through IEdtMcpBridge and answered from real EDT-MCP output (7 assistant
+                        // messages). Not every name is accepted - "chat"/"agent"/"git-review" are
+                        // refused by the cloud with "Failed to create conversation" in ~35 ms - so do
+                        // not treat this as a free-form field.
+                        effectiveSkill, Boolean.FALSE, maxToolRounds);
 
                 // Dispatching is irreversible in the way that matters: Workmate's tool loop can
                 // edit this configuration, and the cancellation token stops us WAITING, not the
@@ -1157,7 +1238,18 @@ public class WorkmateGateway
         {
             return true;
         }
-        if (trimmed.length() > PLAN_TEXT_MAX_CHARS || trimmed.endsWith("?")) //$NON-NLS-1$
+        if (trimmed.endsWith("?")) //$NON-NLS-1$
+        {
+            return false;
+        }
+        // Matches Workmate 1.0.8 AutoContinuePolicy + ConversationFacade.rejectToolLikeJson:
+        // a response ending with ':' / ':"' or consisting of a raw tool-call JSON object is
+        // always an incomplete mid-turn step, even when longer than PLAN_TEXT_MAX_CHARS.
+        if (endsWithOpenColon(trimmed) || looksLikeToolCallJson(trimmed))
+        {
+            return true;
+        }
+        if (trimmed.length() > PLAN_TEXT_MAX_CHARS)
         {
             return false;
         }
@@ -1171,6 +1263,32 @@ public class WorkmateGateway
             }
         }
         return false;
+    }
+
+    private static boolean endsWithOpenColon(String trimmed)
+    {
+        return trimmed.endsWith(":") || trimmed.endsWith(":\""); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private static boolean looksLikeToolCallJson(String trimmed)
+    {
+        String candidate = trimmed;
+        if (candidate.startsWith("```") && candidate.endsWith("```")) //$NON-NLS-1$ //$NON-NLS-2$
+        {
+            int firstNewline = candidate.indexOf('\n');
+            if (firstNewline > 0 && firstNewline < candidate.length() - 3)
+            {
+                candidate = candidate.substring(firstNewline + 1, candidate.length() - 3).trim();
+            }
+        }
+        if (!candidate.startsWith("{") || !candidate.endsWith("}")) //$NON-NLS-1$ //$NON-NLS-2$
+        {
+            return false;
+        }
+        return (candidate.contains("\"name\"") && (candidate.contains("\"arguments\"") || candidate.contains("\"parameters\"") || candidate.contains("\"args\""))) //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            || (candidate.contains("\"tool\"") && (candidate.contains("\"parameters\"") || candidate.contains("\"arguments\"") || candidate.contains("\"args\"") || candidate.contains("\"code\""))) //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
+            || (candidate.contains("\"function\"") && candidate.contains("\"arguments\"")) //$NON-NLS-1$ //$NON-NLS-2$
+            || (candidate.contains("\"repl_session_id\"") && candidate.contains("\"codeSnippet\"")); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     /**
@@ -3264,5 +3382,286 @@ public class WorkmateGateway
         }
         throw GatewayException.incompatible("SendMessageResult.getAssistantMessageCount() " //$NON-NLS-1$
             + "returned " + typeName(value) + " instead of a number"); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    static final class NativeRuleFile
+    {
+        final String label;
+        final String path;
+        final String content;
+
+        NativeRuleFile(String label, String path, String content)
+        {
+            this.label = label;
+            this.path = path;
+            this.content = content;
+        }
+    }
+
+    static final class NativeSkillEntry
+    {
+        final String skillId;
+        final String name;
+        final String description;
+        final String source;
+
+        NativeSkillEntry(String skillId, String name, String description, String source)
+        {
+            this.skillId = skillId;
+            this.name = name;
+            this.description = description;
+            this.source = source;
+        }
+    }
+
+    static final class NativeInlinedSkill
+    {
+        final String skillId;
+        final String sourceLabel;
+        final String body;
+
+        NativeInlinedSkill(String skillId, String sourceLabel, String body)
+        {
+            this.skillId = skillId;
+            this.sourceLabel = sourceLabel;
+            this.body = body;
+        }
+    }
+
+    /**
+     * Delegates standard 3-tier {@code WORKMATE.md} loading to Workmate 1.0.8's own
+     * {@code IdeApiHandler} when running inside EDT. Returns {@code null} when OSGi or
+     * Workmate is not active so {@link WorkmateRulesResolver} can fall back to filesystem I/O.
+     */
+    static List<NativeRuleFile> loadNativeStandardRules(IProject project)
+    {
+        try
+        {
+            Bundle uiCommonBundle = requireBundle(UI_COMMON_BUNDLE);
+            Bundle uiBundle = requireBundle(UI_BUNDLE);
+            Object injector = resolveInjector(uiCommonBundle);
+            Class<?> injectorClass = requireClass(uiCommonBundle, GUICE_INJECTOR);
+            Method getInstance = requireMethod(injectorClass, "getInstance", Class.class); //$NON-NLS-1$
+
+            Class<?> handlerClass;
+            try
+            {
+                handlerClass = uiBundle.loadClass(IDE_API_HANDLER);
+            }
+            catch (ClassNotFoundException e)
+            {
+                handlerClass = requireClass(uiCommonBundle, IDE_API_HANDLER);
+            }
+            Object handler = invoke(getInstance, injector, handlerClass);
+            if (handler == null)
+            {
+                return null;
+            }
+
+            List<NativeRuleFile> result = new ArrayList<>(3);
+            Set<String> seenPaths = new LinkedHashSet<>();
+
+            String commonPath = stringValue(
+                invoke(requireMethod(handlerClass, "getCommonRulesPath"), handler)); //$NON-NLS-1$
+            String commonContent = stringValue(
+                invoke(requireMethod(handlerClass, "getCommonRulesContent"), handler)); //$NON-NLS-1$
+            addNativeRuleIfPresent(result, seenPaths, "User", commonPath, commonContent); //$NON-NLS-1$
+
+            String wsPath = stringValue(
+                invoke(requireMethod(handlerClass, "getWorkspaceRulesPath"), handler)); //$NON-NLS-1$
+            String wsContent = stringValue(
+                invoke(requireMethod(handlerClass, "getWorkspaceRulesContent"), handler)); //$NON-NLS-1$
+            addNativeRuleIfPresent(result, seenPaths, "Workspace", wsPath, wsContent); //$NON-NLS-1$
+
+            if (project != null && project.getName() != null && !project.getName().isEmpty())
+            {
+                String projName = project.getName();
+                String projPath = stringValue(invoke(
+                    requireMethod(handlerClass, "getProjectRulesPath", String.class), //$NON-NLS-1$
+                    handler, projName));
+                String projContent = stringValue(invoke(
+                    requireMethod(handlerClass, "getProjectRulesContent", String.class), //$NON-NLS-1$
+                    handler, projName));
+                addNativeRuleIfPresent(result, seenPaths, "Project", projPath, projContent); //$NON-NLS-1$
+            }
+            return result;
+        }
+        catch (Throwable ignored) // NOSONAR fallback to filesystem resolver when outside OSGi
+        {
+            return null;
+        }
+    }
+
+    private static void addNativeRuleIfPresent(List<NativeRuleFile> target, Set<String> seenPaths,
+        String label, String rawPath, String rawContent)
+    {
+        if (rawContent == null || rawContent.isBlank())
+        {
+            return;
+        }
+        String normalizedPath = rawPath != null ? rawPath.replace('\\', '/') : label;
+        if (seenPaths.add(normalizedPath))
+        {
+            target.add(new NativeRuleFile(label, normalizedPath, rawContent.trim()));
+        }
+    }
+
+    /**
+     * Delegates skill discovery to Workmate 1.0.8's {@code ISkillRegistry.listSkills(Optional<IProject>)},
+     * which returns {@code PROJECT}, {@code WORKSPACE}, {@code USER}, and built-in {@code BUNDLE} skills.
+     * Returns {@code null} when OSGi or Workmate is not active.
+     */
+    static List<NativeSkillEntry> listNativeSkills(IProject project)
+    {
+        try
+        {
+            Bundle uiCommonBundle = requireBundle(UI_COMMON_BUNDLE);
+            Object injector = resolveInjector(uiCommonBundle);
+            Class<?> injectorClass = requireClass(uiCommonBundle, GUICE_INJECTOR);
+            Method getInstance = requireMethod(injectorClass, "getInstance", Class.class); //$NON-NLS-1$
+
+            Class<?> registryClass = requireClass(uiCommonBundle, SKILL_REGISTRY);
+            Object registry = invoke(getInstance, injector, registryClass);
+            if (registry == null)
+            {
+                return null;
+            }
+            Method listSkills = requireMethod(registryClass, "listSkills", Optional.class); //$NON-NLS-1$
+            Object rawList = invoke(listSkills, registry, Optional.ofNullable(project));
+            if (!(rawList instanceof Collection<?>))
+            {
+                return null;
+            }
+            List<NativeSkillEntry> entries = new ArrayList<>();
+            for (Object item : (Collection<?>)rawList)
+            {
+                if (item == null)
+                {
+                    continue;
+                }
+                Class<?> descClass = item.getClass();
+                String skillId = stringValue(
+                    invoke(requireMethod(descClass, "getSkillId"), item)); //$NON-NLS-1$
+                String name = stringValue(
+                    invoke(requireMethod(descClass, "getName"), item)); //$NON-NLS-1$
+                String description = stringValue(
+                    invoke(requireMethod(descClass, "getDescription"), item)); //$NON-NLS-1$
+                Object sourceObj = invoke(requireMethod(descClass, "getSource"), item); //$NON-NLS-1$
+                String source = sourceObj != null ? sourceObj.toString() : ""; //$NON-NLS-1$
+                if (skillId != null && !skillId.isEmpty())
+                {
+                    entries.add(new NativeSkillEntry(skillId, name, description, source));
+                }
+            }
+            return entries;
+        }
+        catch (Throwable ignored) // NOSONAR fallback to filesystem resolver when outside OSGi
+        {
+            return null;
+        }
+    }
+
+    /**
+     * Resolves and renders a single skill by ID using Workmate 1.0.8's native
+     * {@code ISkillExecutor} (supporting {@code BUNDLE}, {@code USER}, {@code WORKSPACE},
+     * and {@code PROJECT} skills as well as {@code !tool('...')} pre-execution directives),
+     * falling back to {@code ISkillRepository} + {@code ISkillMdParser} when the skill
+     * contains unprovided {@code ${...}} placeholders. Returns {@code null} when OSGi/Workmate
+     * is inactive or the skill is not registered in Workmate.
+     */
+    static NativeInlinedSkill resolveNativeSkill(String skillId, IProject project, Path projectRoot)
+    {
+        try
+        {
+            Bundle aiBundle = requireBundle(AI_BUNDLE);
+            Bundle uiCommonBundle = requireBundle(UI_COMMON_BUNDLE);
+            Object injector = resolveInjector(uiCommonBundle);
+            Class<?> injectorClass = requireClass(uiCommonBundle, GUICE_INJECTOR);
+            Method getInstance = requireMethod(injectorClass, "getInstance", Class.class); //$NON-NLS-1$
+
+            // 1. Try ISkillExecutor.executeAsync first so !tool(...) directives and ${projectName}
+            // are evaluated by Workmate's own skill engine.
+            try
+            {
+                Class<?> executorClass = requireClass(uiCommonBundle, SKILL_EXECUTOR);
+                Object executor = invoke(getInstance, injector, executorClass);
+                if (executor != null)
+                {
+                    Class<?> reqClass = requireClass(uiCommonBundle, SKILL_EXECUTION_REQUEST);
+                    Constructor<?> reqCtor = reqClass.getConstructor(String.class, Map.class);
+                    Map<String, String> params = new HashMap<>();
+                    if (project != null && project.getName() != null)
+                    {
+                        params.put("projectName", project.getName()); //$NON-NLS-1$
+                    }
+                    Object req = reqCtor.newInstance(skillId, params);
+                    Class<?> tokenClass = requireClass(aiBundle, CANCELLATION_TOKEN);
+                    Object token = createCancellationToken(tokenClass, new AtomicBoolean(false));
+                    Method executeAsync = requireMethod(executorClass, "executeAsync", //$NON-NLS-1$
+                        reqClass, tokenClass);
+                    Object futureObj = invoke(executeAsync, executor, req, token);
+                    if (futureObj instanceof CompletableFuture<?>)
+                    {
+                        Object execResult = ((CompletableFuture<?>)futureObj)
+                            .get(15L, TimeUnit.SECONDS);
+                        if (execResult != null)
+                        {
+                            String prompt = stringValue(
+                                execResult.getClass().getMethod("getPrompt").invoke(execResult)); //$NON-NLS-1$
+                            if (prompt != null && !prompt.isBlank())
+                            {
+                                return new NativeInlinedSkill(skillId,
+                                    "Workmate ISkillExecutor", prompt.trim()); //$NON-NLS-1$
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Throwable ignored) // NOSONAR fall through to ISkillRepository + ISkillMdParser
+            {
+                // A skill with unprovided ${...} placeholders throws SkillExecutionException;
+                // load and parse its raw body via ISkillRepository + ISkillMdParser instead.
+            }
+
+            // 2. Fallback to Workmate's native ISkillRepository + ISkillMdParser.
+            Class<?> repoClass = requireClass(uiCommonBundle, SKILL_REPOSITORY);
+            Object repo = invoke(getInstance, injector, repoClass);
+            Class<?> parserClass = requireClass(uiCommonBundle, SKILL_MD_PARSER);
+            Object parser = invoke(getInstance, injector, parserClass);
+            if (repo == null || parser == null)
+            {
+                return null;
+            }
+            Path effectiveProjectPath = projectRoot;
+            if (effectiveProjectPath == null && project != null && project.getLocation() != null)
+            {
+                effectiveProjectPath = project.getLocation().toFile().toPath();
+            }
+            Method loadMd = requireMethod(repoClass, "loadSkillMarkdown", //$NON-NLS-1$
+                String.class, Optional.class);
+            String markdown = stringValue(
+                invoke(loadMd, repo, skillId, Optional.ofNullable(effectiveProjectPath)));
+            if (markdown == null || markdown.isBlank())
+            {
+                return null;
+            }
+            Method parse = requireMethod(parserClass, "parse", String.class, String.class); //$NON-NLS-1$
+            Object parsed = invoke(parse, parser, skillId, markdown);
+            if (parsed == null)
+            {
+                return null;
+            }
+            String body = stringValue(parsed.getClass().getMethod("getBody").invoke(parsed)); //$NON-NLS-1$
+            if (body != null && !body.isBlank())
+            {
+                return new NativeInlinedSkill(skillId,
+                    "Workmate ISkillRepository", body.trim()); //$NON-NLS-1$
+            }
+            return null;
+        }
+        catch (Throwable ignored) // NOSONAR fallback to filesystem resolver
+        {
+            return null;
+        }
     }
 }

@@ -171,7 +171,7 @@ public final class WorkmateRulesResolver
     public String resolvePreamble(String rulesSource, List<String> skills, IProject project)
         throws RulesResolutionException
     {
-        return resolvePreamble(rulesSource, true, skills, projectLocation(project));
+        return resolvePreamble(rulesSource, true, skills, project);
     }
 
     /**
@@ -190,7 +190,7 @@ public final class WorkmateRulesResolver
     public String resolvePreamble(String rulesSource, boolean includeRulesAndCatalogue,
         List<String> skills, IProject project) throws RulesResolutionException
     {
-        return resolvePreamble(rulesSource, includeRulesAndCatalogue, skills,
+        return resolvePreambleInternal(rulesSource, includeRulesAndCatalogue, skills, project,
             projectLocation(project));
     }
 
@@ -223,6 +223,13 @@ public final class WorkmateRulesResolver
     public String resolvePreamble(String rulesSource, boolean includeRulesAndCatalogue,
         List<String> skills, Path projectRoot) throws RulesResolutionException
     {
+        return resolvePreambleInternal(rulesSource, includeRulesAndCatalogue, skills, null,
+            projectRoot);
+    }
+
+    private String resolvePreambleInternal(String rulesSource, boolean includeRulesAndCatalogue,
+        List<String> skills, IProject project, Path projectRoot) throws RulesResolutionException
+    {
         String normalizedSource = normalizeRulesSource(rulesSource);
         List<String> normalizedSkills = normalizeSkills(skills);
         boolean emitRules = includeRulesAndCatalogue && normalizedSource != null;
@@ -231,10 +238,14 @@ public final class WorkmateRulesResolver
             return ""; //$NON-NLS-1$
         }
 
+        boolean useNativeServices = (userHomeOverride == null && workspaceRootOverride == null);
+        boolean isCustomSource = normalizedSource != null
+            && !SOURCE_STANDARD.equals(normalizedSource);
+
         List<LabeledRoot> ruleRoots = new ArrayList<>();
         List<LabeledRoot> skillSearchRoots = new ArrayList<>();
 
-        if (normalizedSource != null && !SOURCE_STANDARD.equals(normalizedSource))
+        if (isCustomSource)
         {
             Path customRoot = resolveCustomWorkmateRoot(normalizedSource);
             LabeledRoot customLabeled = new LabeledRoot("Custom", customRoot); //$NON-NLS-1$
@@ -265,15 +276,31 @@ public final class WorkmateRulesResolver
         }
 
         // 1. Validate and load explicitly requested skills first so missing skills fail fast.
+        // When running in EDT without test overrides, delegate standard/bundled skill execution
+        // to Workmate 1.0.8's own ISkillExecutor / ISkillRepository + ISkillMdParser first.
         Map<String, ResolvedSkill> inlinedSkills = new LinkedHashMap<>();
         for (String skillName : normalizedSkills)
         {
             validateSkillName(skillName);
-            ResolvedSkill resolved = findSkillOrCommand(skillName, skillSearchRoots);
+            ResolvedSkill resolved = null;
+            if (useNativeServices && !isCustomSource)
+            {
+                resolved = resolveViaNativeWorkmate(skillName, project, projectRoot,
+                    skillSearchRoots);
+            }
+            if (resolved == null)
+            {
+                resolved = findSkillOrCommand(skillName, skillSearchRoots);
+            }
+            if (resolved == null && useNativeServices && isCustomSource)
+            {
+                resolved = resolveViaNativeWorkmate(skillName, project, projectRoot,
+                    skillSearchRoots);
+            }
             if (resolved == null)
             {
                 throw new RulesResolutionException(buildMissingSkillMessage(skillName,
-                    skillSearchRoots));
+                    skillSearchRoots, useNativeServices ? project : null));
             }
             inlinedSkills.put(skillName, resolved);
         }
@@ -282,22 +309,64 @@ public final class WorkmateRulesResolver
         List<LoadedRuleFile> loadedRules = new ArrayList<>();
         Map<String, DiscoveredEntry> discoveredSkills = new TreeMap<>();
         Map<String, DiscoveredEntry> discoveredCommands = new TreeMap<>();
+        List<String> bundledSkillIds = new ArrayList<>();
 
         if (emitRules)
         {
+            List<WorkmateGateway.NativeRuleFile> nativeRules =
+                (useNativeServices && !isCustomSource)
+                    ? WorkmateGateway.loadNativeStandardRules(project)
+                    : null;
+            if (nativeRules != null)
+            {
+                for (WorkmateGateway.NativeRuleFile nr : nativeRules)
+                {
+                    loadedRules.add(new LoadedRuleFile(nr.label, nr.path, nr.content));
+                }
+            }
             for (LabeledRoot root : ruleRoots)
             {
-                Path rulesFile = root.path.resolve(WORKMATE_MD);
-                if (Files.isRegularFile(rulesFile))
+                if (nativeRules == null)
                 {
-                    String content = readUtf8(rulesFile);
-                    if (!content.isBlank())
+                    Path rulesFile = root.path.resolve(WORKMATE_MD);
+                    if (Files.isRegularFile(rulesFile))
                     {
-                        loadedRules.add(new LoadedRuleFile(root.label, rulesFile, content.trim()));
+                        String content = readUtf8(rulesFile);
+                        if (!content.isBlank())
+                        {
+                            loadedRules.add(new LoadedRuleFile(root.label, slashPath(rulesFile),
+                                content.trim()));
+                        }
                     }
                 }
                 collectSkillsInRoot(root.path, discoveredSkills);
                 collectCommandsInRoot(root.path, discoveredCommands);
+            }
+            if (useNativeServices && !isCustomSource)
+            {
+                List<WorkmateGateway.NativeSkillEntry> nativeSkills =
+                    WorkmateGateway.listNativeSkills(project);
+                if (nativeSkills != null)
+                {
+                    for (WorkmateGateway.NativeSkillEntry ns : nativeSkills)
+                    {
+                        if ("BUNDLE".equalsIgnoreCase(ns.source)) //$NON-NLS-1$
+                        {
+                            bundledSkillIds.add(ns.skillId);
+                        }
+                        else if (discoveredSkills.containsKey(ns.skillId))
+                        {
+                            DiscoveredEntry existing = discoveredSkills.get(ns.skillId);
+                            String summary = (ns.description != null && !ns.description.isEmpty())
+                                ? ns.description
+                                : ((ns.name != null && !ns.name.isEmpty())
+                                    ? ns.name
+                                    : existing.summary);
+                            discoveredSkills.put(ns.skillId,
+                                new DiscoveredEntry(existing.name, existing.path, summary));
+                        }
+                    }
+                }
             }
         }
 
@@ -325,7 +394,7 @@ public final class WorkmateRulesResolver
         for (LoadedRuleFile ruleFile : loadedRules)
         {
             out.append("--- WORKMATE.md [").append(ruleFile.label).append(": ") //$NON-NLS-1$ //$NON-NLS-2$
-                .append(slashPath(ruleFile.path)).append("] ---\n") //$NON-NLS-1$
+                .append(ruleFile.pathDisplay).append("] ---\n") //$NON-NLS-1$
                 .append(ruleFile.content).append("\n\n"); //$NON-NLS-1$
         }
 
@@ -360,13 +429,21 @@ public final class WorkmateRulesResolver
             out.append("\n"); //$NON-NLS-1$
         }
 
+        if (!bundledSkillIds.isEmpty())
+        {
+            out.append("### Встроенные навыки 1C:Напарника (BUNDLE)\n"); //$NON-NLS-1$
+            out.append("Доступны через параметр `skills`: `") //$NON-NLS-1$
+                .append(String.join("`, `", bundledSkillIds)) //$NON-NLS-1$
+                .append("`.\n\n"); //$NON-NLS-1$
+        }
+
         if (!inlinedSkills.isEmpty())
         {
             out.append("=== ПОДКЛЮЧЁННЫЕ НАВЫКИ (ОБЯЗАТЕЛЬНЫ К ВЫПОЛНЕНИЮ) ===\n\n"); //$NON-NLS-1$
             for (ResolvedSkill skill : inlinedSkills.values())
             {
                 out.append("--- Навык `").append(skill.name).append("` [") //$NON-NLS-1$ //$NON-NLS-2$
-                    .append(slashPath(skill.path)).append("] ---\n") //$NON-NLS-1$
+                    .append(skill.sourceDisplay).append("] ---\n") //$NON-NLS-1$
                     .append(skill.body).append("\n\n"); //$NON-NLS-1$
             }
         }
@@ -526,6 +603,26 @@ public final class WorkmateRulesResolver
         }
     }
 
+    private static ResolvedSkill resolveViaNativeWorkmate(String skillName, IProject project,
+        Path projectRoot, List<LabeledRoot> roots)
+    {
+        WorkmateGateway.NativeInlinedSkill nativeSkill =
+            WorkmateGateway.resolveNativeSkill(skillName, project, projectRoot);
+        if (nativeSkill == null || nativeSkill.body == null || nativeSkill.body.isEmpty())
+        {
+            return null;
+        }
+        for (LabeledRoot root : roots)
+        {
+            Path skillFile = root.path.resolve(SKILLS_DIR).resolve(skillName).resolve(SKILL_MD);
+            if (Files.isRegularFile(skillFile))
+            {
+                return new ResolvedSkill(skillName, slashPath(skillFile), nativeSkill.body);
+            }
+        }
+        return new ResolvedSkill(skillName, "builtin:" + skillName, nativeSkill.body); //$NON-NLS-1$
+    }
+
     private static ResolvedSkill findSkillOrCommand(String name, List<LabeledRoot> roots)
     {
         for (LabeledRoot root : roots)
@@ -537,7 +634,8 @@ public final class WorkmateRulesResolver
                 String content = readUtf8(skillFile);
                 if (!content.isBlank())
                 {
-                    return new ResolvedSkill(name, skillFile, stripYamlFrontmatter(content).trim());
+                    return new ResolvedSkill(name, slashPath(skillFile),
+                        stripYamlFrontmatter(content).trim());
                 }
             }
             // 2. Direct <root>/<name>/SKILL.md (in case custom rulesSource points directly at skills/)
@@ -547,7 +645,7 @@ public final class WorkmateRulesResolver
                 String content = readUtf8(directSkill);
                 if (!content.isBlank())
                 {
-                    return new ResolvedSkill(name, directSkill,
+                    return new ResolvedSkill(name, slashPath(directSkill),
                         stripYamlFrontmatter(content).trim());
                 }
             }
@@ -558,7 +656,7 @@ public final class WorkmateRulesResolver
                 String content = readUtf8(commandFile);
                 if (!content.isBlank())
                 {
-                    return new ResolvedSkill(name, commandFile,
+                    return new ResolvedSkill(name, slashPath(commandFile),
                         stripYamlFrontmatter(content).trim());
                 }
             }
@@ -566,7 +664,8 @@ public final class WorkmateRulesResolver
         return null;
     }
 
-    private static String buildMissingSkillMessage(String missingSkill, List<LabeledRoot> roots)
+    private static String buildMissingSkillMessage(String missingSkill, List<LabeledRoot> roots,
+        IProject project)
     {
         Map<String, DiscoveredEntry> available = new TreeMap<>();
         List<String> searchedPaths = new ArrayList<>();
@@ -575,6 +674,19 @@ public final class WorkmateRulesResolver
             searchedPaths.add(slashPath(root.path));
             collectSkillsInRoot(root.path, available);
             collectCommandsInRoot(root.path, available);
+        }
+        List<WorkmateGateway.NativeSkillEntry> nativeSkills =
+            WorkmateGateway.listNativeSkills(project);
+        if (nativeSkills != null)
+        {
+            for (WorkmateGateway.NativeSkillEntry ns : nativeSkills)
+            {
+                if (ns.skillId != null && !ns.skillId.isEmpty()
+                    && !available.containsKey(ns.skillId))
+                {
+                    available.put(ns.skillId, new DiscoveredEntry(ns.skillId, null, ns.description));
+                }
+            }
         }
         StringBuilder msg = new StringBuilder();
         msg.append("Skill '").append(missingSkill).append("' was not found"); //$NON-NLS-1$ //$NON-NLS-2$
@@ -763,13 +875,13 @@ public final class WorkmateRulesResolver
     private static final class LoadedRuleFile
     {
         final String label;
-        final Path path;
+        final String pathDisplay;
         final String content;
 
-        LoadedRuleFile(String label, Path path, String content)
+        LoadedRuleFile(String label, String pathDisplay, String content)
         {
             this.label = label;
-            this.path = path;
+            this.pathDisplay = pathDisplay;
             this.content = content;
         }
     }
@@ -791,13 +903,13 @@ public final class WorkmateRulesResolver
     private static final class ResolvedSkill
     {
         final String name;
-        final Path path;
+        final String sourceDisplay;
         final String body;
 
-        ResolvedSkill(String name, Path path, String body)
+        ResolvedSkill(String name, String sourceDisplay, String body)
         {
             this.name = name;
-            this.path = path;
+            this.sourceDisplay = sourceDisplay;
             this.body = body;
         }
     }

@@ -47,10 +47,24 @@ public final class BackgroundJobRenderer
             summary.put("completedAt", //$NON-NLS-1$
                 Instant.ofEpochMilli(job.getCompletedAtMs()).toString());
         }
-        if (workmateResponse != null && workmateResponse.getAssistantMessageCount() != null)
+        if (workmateResponse != null)
         {
-            summary.put("assistantMessages", //$NON-NLS-1$
-                workmateResponse.getAssistantMessageCount().toString());
+            if (workmateResponse.getAssistantMessageCount() != null)
+            {
+                summary.put("assistantMessages", //$NON-NLS-1$
+                    workmateResponse.getAssistantMessageCount().toString());
+            }
+            summary.put("declaredFinal", //$NON-NLS-1$
+                Boolean.toString(workmateResponse.isDeclaredFinal()));
+            if (workmateResponse.getContinuations() > 0)
+            {
+                summary.put("continuations", //$NON-NLS-1$
+                    Integer.toString(workmateResponse.getContinuations()));
+            }
+            if (workmateResponse.isAwaitingUserReply())
+            {
+                summary.put("awaitingUserReply", "true"); //$NON-NLS-1$ //$NON-NLS-2$
+            }
         }
         if (job.getStatus() == BackgroundJobs.Status.FAILED && job.getErrorMarker() != null)
         {
@@ -95,7 +109,13 @@ public final class BackgroundJobRenderer
         {
             // Said BEFORE the answer, not after it: whether Workmate declared itself finished
             // changes how the text should be read, and a note under a long answer is missed.
-            if (!workmateResponse.isDeclaredFinal())
+            if (workmateResponse.isAwaitingUserReply())
+            {
+                target.append("\n> **Awaiting user reply.** Workmate paused with a clarifying " //$NON-NLS-1$
+                    + "question instead of sending its end-of-answer marker. Send the reply " //$NON-NLS-1$
+                    + "with `workmate_chat_send` to continue in the same conversation.\n"); //$NON-NLS-1$
+            }
+            else if (!workmateResponse.isDeclaredFinal())
             {
                 target.append("\n> **Completion not confirmed.** ") //$NON-NLS-1$
                     // What was MEASURED, not what was inferred: this plugin sees only the calls
