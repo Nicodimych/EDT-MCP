@@ -11,15 +11,16 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 
-import org.junit.Rule;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 import com.ditrix.edt.mcp.server.utils.WorkmateRulesResolver.RulesResolutionException;
 
@@ -29,13 +30,35 @@ import com.ditrix.edt.mcp.server.utils.WorkmateRulesResolver.RulesResolutionExce
  */
 public class WorkmateRulesResolverTest
 {
-    @Rule
-    public TemporaryFolder tmp = new TemporaryFolder();
+    /** Per-test scratch root, created fresh in {@link #setUp()} and removed in {@link #tearDown()}. */
+    private Path tmp;
+
+    /**
+     * The JUnit 4 bundle on the EDT target platform does not export {@code org.junit.rules}, so
+     * {@code TemporaryFolder} is not accessible here; the scratch tree is made by hand instead.
+     */
+    @Before
+    public void setUp() throws IOException
+    {
+        tmp = Files.createTempDirectory("workmate-rules-resolver"); //$NON-NLS-1$
+    }
+
+    @After
+    public void tearDown() throws IOException, InterruptedException
+    {
+        TemporaryDirectories.deleteRecursively(tmp);
+    }
+
+    /** Creates a directory named {@code name} under the scratch root and returns it. */
+    private Path folder(String name) throws IOException
+    {
+        return Files.createDirectories(tmp.resolve(name));
+    }
 
     @Test
     public void testNoneOrOmittedProducesEmptyPreamble() throws Exception
     {
-        Path userHome = tmp.newFolder("user").toPath(); //$NON-NLS-1$
+        Path userHome = folder("user"); //$NON-NLS-1$
         Files.createDirectories(userHome.resolve(".workmate")); //$NON-NLS-1$
         Files.writeString(userHome.resolve(".workmate/WORKMATE.md"), //$NON-NLS-1$
             "# User rules", StandardCharsets.UTF_8); //$NON-NLS-1$
@@ -49,9 +72,9 @@ public class WorkmateRulesResolverTest
     @Test
     public void testStandardHierarchyConcatenatesRulesAndOverridesSkills() throws Exception
     {
-        Path userHome = tmp.newFolder("user").toPath(); //$NON-NLS-1$
-        Path wsRoot = tmp.newFolder("workspace").toPath(); //$NON-NLS-1$
-        Path projRoot = tmp.newFolder("project").toPath(); //$NON-NLS-1$
+        Path userHome = folder("user"); //$NON-NLS-1$
+        Path wsRoot = folder("workspace"); //$NON-NLS-1$
+        Path projRoot = folder("project"); //$NON-NLS-1$
 
         // User level: WORKMATE.md + 2 skills (formy, samoproverka) + 1 command
         Path userWm = Files.createDirectories(userHome.resolve(".workmate")); //$NON-NLS-1$
@@ -98,13 +121,13 @@ public class WorkmateRulesResolverTest
     @Test
     public void testCustomDirectoryAndMissingSkillError() throws Exception
     {
-        Path customDir = tmp.newFolder("custom-rules").toPath(); //$NON-NLS-1$
+        Path customDir = folder("custom-rules"); //$NON-NLS-1$
         Files.writeString(customDir.resolve("WORKMATE.md"), "CUSTOM_RULES", StandardCharsets.UTF_8); //$NON-NLS-1$ //$NON-NLS-2$
         Path skillDir = Files.createDirectories(customDir.resolve("skills/skd")); //$NON-NLS-1$
         Files.writeString(skillDir.resolve("SKILL.md"), "SKD_SKILL_CONTENT", StandardCharsets.UTF_8); //$NON-NLS-1$ //$NON-NLS-2$
 
         WorkmateRulesResolver resolver = new WorkmateRulesResolver(
-            tmp.newFolder("empty-user").toPath(), null); //$NON-NLS-1$
+            folder("empty-user"), null); //$NON-NLS-1$
 
         String preamble = resolver.resolvePreamble(customDir.toString(),
             Collections.singletonList("skd"), (Path) null); //$NON-NLS-1$

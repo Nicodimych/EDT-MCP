@@ -27,9 +27,6 @@ import org.junit.Test;
 import com.ditrix.edt.mcp.server.utils.BackgroundJobs;
 import com.ditrix.edt.mcp.server.utils.WorkmateChatStore;
 import com.ditrix.edt.mcp.server.utils.WorkmateGateway;
-import com.ditrix.edt.mcp.server.utils.WorkmateGateway.GatewayException;
-import com.ditrix.edt.mcp.server.utils.WorkmateGateway.ProgressListener;
-import com.ditrix.edt.mcp.server.utils.WorkmateGateway.WorkmateResponse;
 
 /**
  * Tests for {@link WorkmateChatSendTool} - the stateful 1C:Workmate conversation send surface.
