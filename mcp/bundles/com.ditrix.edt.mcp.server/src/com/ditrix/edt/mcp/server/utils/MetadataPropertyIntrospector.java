@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.TreeMap;
+import java.util.function.Predicate;
 
 import org.eclipse.emf.common.util.EList;
 import org.eclipse.emf.common.util.EMap;
@@ -60,7 +61,9 @@ import com.google.gson.JsonObject;
  * <p>A feature is considered assignable when it is changeable and not derived / transient / volatile,
  * and is not a containment reference (those are normally child collections - attributes / tabular
  * sections / forms / commands - created via {@code create_metadata}, not set as a scalar value).
- * Small containment value shapes with an explicit wire grammar are admitted separately.</p>
+ * Small containment value shapes with an explicit wire grammar are admitted separately, as are the
+ * non-containment lists of inferred fields and standard form commands
+ * ({@link ValueKind#FIELD_LIST} and {@link ValueKind#EXCLUDED_COMMANDS}).</p>
  */
 public final class MetadataPropertyIntrospector
 {
@@ -69,6 +72,15 @@ public final class MetadataPropertyIntrospector
      * property addresses. Its sibling {@code for} list (per-role values) is addressed by the object form.
      */
     public static final String COMMON_FEATURE = "common"; //$NON-NLS-1$
+
+    /**
+     * The "allowed values" cell of a command's {@code group}: both forms {@code modify_metadata} takes.
+     * The standard names themselves depend on the platform version; an unknown one is refused with the
+     * full list. The forms are inline code: a bare {@code <Name>} is an HTML tag to a Markdown renderer,
+     * which would show the cell as just {@code CommandGroup.}.
+     */
+    static final String COMMAND_GROUP_ALLOWED =
+        "`CommandGroup.<Name>` or a standard group name (e.g. `ActionsPanelTools`)"; //$NON-NLS-1$
 
     /** The kind of value an assignable property takes - drives validation and rendering. */
     public enum ValueKind
@@ -155,7 +167,22 @@ public final class MetadataPropertyIntrospector
          * A form attribute's "Use always" checkboxes, published as {@code useAlways} over the model's
          * {@code notDefaultUseAlwaysAttributes} list (issue #661, see {@link UseAlwaysSupport}).
          */
-        USE_ALWAYS
+        USE_ALWAYS,
+        /**
+         * A list of the object's OWN fields - {@code inputByString} and {@code dataLockFields} of the
+         * eight BasicDbObject kinds (issue #740) - set by replacing the whole list from a JSON array of
+         * field addresses ({@code Catalog.Goods.StandardAttribute.Description},
+         * {@code Catalog.Goods.Attribute.Weight}, {@code CommonAttribute.Org}): the grammar EDT itself
+         * writes into the {@code .mdo}, read back unchanged.
+         *
+         * <p>The entries reference TRANSIENT fields EDT derives and rebuilds on every recompute, so the
+         * write stores BM proxies addressed by field id, as EDT's own initializer does, and the
+         * {@link PropertyInfo#allowedValues} are the addresses EDT offers for that list - per object,
+         * read from the model's source types (see {@link FieldListSupport}).</p>
+         */
+        FIELD_LIST,
+        /** A form source's standard command names; the whole exclusion set is replaced. */
+        EXCLUDED_COMMANDS
     }
 
     /** The introspected schema of one assignable property. */
@@ -285,6 +312,24 @@ public final class MetadataPropertyIntrospector
      */
     public static List<PropertyInfo> introspect(EObject obj)
     {
+        return introspectOnly(obj, name -> true);
+    }
+
+    /**
+     * Returns the assignable properties of {@code obj} whose wire name {@code admit} accepts, in the
+     * model's feature order - {@link #introspect(EObject)} restricted BEFORE any current value is read.
+     *
+     * <p>The restriction is not a filter over the finished list: a property the predicate rejects is
+     * never read or rendered at all. That is the point for a configuration root (issue #741), whose
+     * object collections hold every top object of the configuration - thousands on an ERP-size one - while
+     * the view asks for a handful of scalar properties.</p>
+     *
+     * @param obj the object to introspect
+     * @param admit accepts the wire names (as {@link PropertyInfo#name} reports them) to return
+     * @return the admitted assignable property schemas (never {@code null}; empty if {@code obj} is null)
+     */
+    public static List<PropertyInfo> introspectOnly(EObject obj, Predicate<String> admit)
+    {
         List<PropertyInfo> result = new ArrayList<>();
         if (obj == null)
         {
@@ -301,9 +346,13 @@ public final class MetadataPropertyIntrospector
             {
                 continue;
             }
+            if (!admit.test(propertyName(feature, kind)))
+            {
+                continue;
+            }
             Rendered current = renderCurrent(obj, feature, kind);
             result.add(new PropertyInfo(propertyName(feature, kind), kind, current.text, current.identity,
-                allowedValuesFor(feature, kind), feature, false, current.failed));
+                allowedValuesFor(obj, feature, kind), feature, false, current.failed));
         }
         return result;
     }
@@ -385,6 +434,10 @@ public final class MetadataPropertyIntrospector
      * type rendering) for EVERY assignable feature of the object - per-property validation (e.g.
      * {@code modify_metadata}'s prepare step, on the UI thread) never reads {@code currentValue},
      * so it must not pay that cost N times.
+     *
+     * <p>For the same reason the allowed values are the FEATURE's only: a {@link ValueKind#FIELD_LIST}
+     * comes back with none, because which fields EDT offers is a property of the object, and the
+     * preparation reads them from it itself ({@link FieldListSupport#resolve}).</p>
      *
      * @param obj the object
      * @param name the feature name (case-insensitive)
@@ -555,7 +608,7 @@ public final class MetadataPropertyIntrospector
             {
                 Rendered current = extInfo != null ? renderCurrent(extInfo, feature, kind) : Rendered.ABSENT;
                 result.add(new PropertyInfo(feature.getName(), kind, current.text, current.identity,
-                    allowedValuesFor(feature, kind), feature, true, current.failed));
+                    allowedValuesFor(extInfo, feature, kind), feature, true, current.failed));
             }
         }
         return result;
@@ -651,6 +704,13 @@ public final class MetadataPropertyIntrospector
      * scope (see {@code ModifyMetadataTool}'s reference-not-found handling) - but what a feature
      * admits, it must also READ: an admitted target that is present is rendered and identified by
      * {@link #referenceTarget}, never reported as an empty property.</p>
+     *
+     * <p>A BasicDbObject's {@code inputByString} / {@code dataLockFields} is the one admitted
+     * non-containment list whose target is not an {@code MdObject}: it is declared against mcore
+     * {@code Field}, the object's own transient derived fields, and is classified as
+     * {@link ValueKind#FIELD_LIST} by target type through {@link FieldListSupport}'s measured
+     * eligibility table (issue #740). It never reaches the MANY_REFERENCE branch below, so the census
+     * {@link #renderReferenceList} documents stays true.</p>
      */
     private static ValueKind classifyReference(EReference ref)
     {
@@ -690,6 +750,17 @@ public final class MetadataPropertyIntrospector
         {
             return ValueKind.MCORE_VALUE_LIST;
         }
+        if (ExcludedCommandsSupport.isFeature(ref))
+        {
+            return ValueKind.EXCLUDED_COMMANDS;
+        }
+        // A list of the object's OWN derived fields (inputByString / dataLockFields, issue #740): a
+        // non-containment many-valued reference to mcore Field, gated by a measured table. A Field is
+        // no MdObject, so this never overlaps the object-reference branch below.
+        if (FieldListSupport.isFieldListFeature(ref))
+        {
+            return ValueKind.FIELD_LIST;
+        }
         // A non-containment reference whose target is a metadata object (MdObject subtype), OR the
         // mcore CommandGroup interface (BasicCommand.group - see the class doc above), is a plain
         // object reference, settable by FQN. Containment refs (child collections) and other non-MdObject
@@ -722,6 +793,17 @@ public final class MetadataPropertyIntrospector
             return null;
         }
         return MdClassPackage.Literals.MD_OBJECT == target ? "metadata object" : target.getName(); //$NON-NLS-1$
+    }
+
+    /**
+     * Whether a reference feature's declared target is the mcore {@code CommandGroup} interface - the
+     * base both a configuration {@code CommandGroup} (an {@code MdObject}, FQN-addressed) and a
+     * platform {@code StandardCommandGroup} (name-addressed) implement.
+     */
+    public static boolean isCommandGroupReference(EStructuralFeature feature)
+    {
+        return feature instanceof EReference
+            && ((EReference)feature).getEReferenceType() == McorePackage.Literals.COMMAND_GROUP;
     }
 
     /** A localized-string map feature (e.g. the synonym) is a containment ref to a *MapEntry EClass. */
@@ -831,6 +913,21 @@ public final class MetadataPropertyIntrospector
         return null;
     }
 
+    /**
+     * The "allowed values" column for a property of {@code holder}: what EDT offers for a
+     * {@link ValueKind#FIELD_LIST} or {@link ValueKind#EXCLUDED_COMMANDS} depends on the OBJECT
+     * (its inferred fields or commands), every other kind's values on the feature alone.
+     */
+    private static List<String> allowedValuesFor(EObject holder, EStructuralFeature feature, ValueKind kind)
+    {
+        if (kind == ValueKind.EXCLUDED_COMMANDS)
+        {
+            return ExcludedCommandsSupport.allowedValues(holder);
+        }
+        return kind == ValueKind.FIELD_LIST ? FieldListSupport.allowedValues(holder, feature)
+            : allowedValuesFor(feature, kind);
+    }
+
     /** The schema "allowed values" column: enum literals for enum kinds, reference target otherwise. */
     private static List<String> allowedValuesFor(EStructuralFeature feature, ValueKind kind)
     {
@@ -840,6 +937,11 @@ public final class MetadataPropertyIntrospector
         }
         if (kind == ValueKind.REFERENCE || kind == ValueKind.MANY_REFERENCE)
         {
+            if (isCommandGroupReference(feature))
+            {
+                // Both forms modify_metadata takes, not the bare interface name (issue #733).
+                return Collections.singletonList(COMMAND_GROUP_ALLOWED);
+            }
             String target = referenceTargetTypeName(feature);
             return target != null ? Collections.singletonList(target) : null;
         }
@@ -963,6 +1065,10 @@ public final class MetadataPropertyIntrospector
                     return referenceTarget(value);
                 case MANY_REFERENCE:
                     return renderReferenceList(value);
+                case FIELD_LIST:
+                    return renderFieldList(value);
+                case EXCLUDED_COMMANDS:
+                    return Rendered.of(ExcludedCommandsSupport.render(value));
                 case MCORE_VALUE_LIST:
                     // The one kind here that answers with a Rendered of its own, because it is the
                     // one whose "no text" does not mean "no value": eGet already handed back a
@@ -1016,7 +1122,7 @@ public final class MetadataPropertyIntrospector
      * injective: {@code {en: "Hi, de=Hallo"}} and {@code {en: "Hi", de: "Hallo"}} render the
      * identical string, and a comparison reading that string calls a one-language synonym and a
      * two-language one the same value. This is the only kind here that joins free text - a single
-     * value carries one value, {@code MANY_ENUM} and {@code MCORE_VALUE_LIST} are JSON arrays,
+     * value carries one value, {@code MANY_ENUM}, {@code MCORE_VALUE_LIST} and {@code FIELD_LIST} are JSON arrays,
      * references use {@code Type.Name} with {@code ", "} outside the 1C identifier alphabet, a
      * type description separates names from qualifiers with {@code " | "} which is outside the
      * type-name alphabet, and a {@code QName} is {@code {nsUri}name} where {@code "}"} occurs in
@@ -1194,6 +1300,14 @@ public final class MetadataPropertyIntrospector
         {
             return ((MdObject)value).getName();
         }
+        if (value instanceof StandardCommandGroup && ((EObject)value).eIsProxy())
+        {
+            // The platform's unresolved proxy - what modify_metadata writes (issue #508). None of its
+            // attributes is loaded: the name is null and the category its default literal, which is
+            // another group's. The platform keys each group by name in the proxy URI's fragment
+            // (StdCommandGroupLoader appends "/" + name), so that is where its name is read.
+            return standardCommandGroupNameFromProxyUri(((InternalEObject)value).eProxyURI());
+        }
         if (value instanceof NamedElement)
         {
             String name = ((NamedElement)value).getName();
@@ -1209,6 +1323,36 @@ public final class MetadataPropertyIntrospector
             }
         }
         return null;
+    }
+
+    /**
+     * How a command's {@code group} is printed wherever it is read back (issue #733): a configuration
+     * group as its {@code CommandGroup.<Name>} FQN, a platform standard group by the name
+     * {@code modify_metadata} takes ({@code ActionsPanelTools}), its category only when it has no name -
+     * the {@link #referenceTargetName} rule, qualified for an {@link MdObject}.
+     *
+     * <p>The formatter's generic "first enum attribute" rendering answers neither: it reads a
+     * configuration group's {@code objectBelonging} ({@code Native}) and a standard group's
+     * {@code category}, which every group of one panel shares.</p>
+     *
+     * <p>An unresolved proxy whose URI names no group is printed as that URI: its attributes are
+     * not loaded, so the generic rendering would print a default category as if it were real.</p>
+     *
+     * @param group the group, may be {@code null}
+     * @return the label, or {@code null} when the platform gives the group no name or category
+     */
+    public static String commandGroupLabel(EObject group)
+    {
+        if (group == null)
+        {
+            return null;
+        }
+        String name = referenceTargetName(group);
+        if (name == null && group.eIsProxy())
+        {
+            return String.valueOf(((InternalEObject)group).eProxyURI());
+        }
+        return group instanceof MdObject && name != null ? qualifiedName(group, name) : name;
     }
 
     /**
@@ -1264,6 +1408,39 @@ public final class MetadataPropertyIntrospector
             rendered.add(((org.eclipse.emf.common.util.Enumerator)element).getName());
         }
         return rendered.toString();
+    }
+
+    /**
+     * Renders a field list as the JSON array of the addresses it stores, in stored order - the value
+     * {@code modify_metadata} takes, so reading Current and sending it back names the same fields.
+     *
+     * <p>An empty list is {@code []}, a value like any other: the wire clears with {@code []}, so the
+     * read must say so too (it is what {@link #renderMcoreValueList} answers for its empty list). An
+     * entry whose address cannot be determined - a proxy that is no BM field URI - makes the whole
+     * value a FAILED read, never a shorter list: a list that silently dropped an entry would compare
+     * equal to one that never held it. The text is the identity: injective (Gson escapes) and
+     * order-sensitive, because the order of the fields is part of the value.</p>
+     *
+     * @param value the feature value, expected to be an {@code EList}
+     * @return the rendering, or {@link Rendered#FAILED} for a list that could not be read
+     */
+    private static Rendered renderFieldList(Object value)
+    {
+        if (!(value instanceof EList<?>))
+        {
+            return Rendered.FAILED;
+        }
+        JsonArray rendered = new JsonArray();
+        for (Object element : (EList<?>)value)
+        {
+            String address = FieldListSupport.addressOf(element);
+            if (address == null)
+            {
+                return Rendered.FAILED;
+            }
+            rendered.add(address);
+        }
+        return Rendered.of(rendered.toString());
     }
 
     /**
@@ -1479,6 +1656,29 @@ public final class MetadataPropertyIntrospector
         }
         return proxyUri == null ? "Unresolved CommonPicture reference" //$NON-NLS-1$
             : "Unresolved CommonPicture reference: " + proxyUri; //$NON-NLS-1$
+    }
+
+    /**
+     * The name of a platform standard command group, read off its proxy URI - but only a URI of the
+     * platform's own catalogue. The versioned {@code CommandGroupProvider} roots it at
+     * {@code v8:/CommandGroup/Std/<version>} and {@code StdCommandGroupLoader} appends
+     * {@code "/" + name}; a fragment of any other URI (a BM object path, another catalogue's key) is
+     * not a group name and is not offered as one.
+     */
+    private static String standardCommandGroupNameFromProxyUri(URI proxyUri)
+    {
+        if (proxyUri == null || !"v8".equals(proxyUri.scheme()) || proxyUri.segmentCount() < 2 //$NON-NLS-1$
+            || !"CommandGroup".equals(proxyUri.segment(0)) || !"Std".equals(proxyUri.segment(1))) //$NON-NLS-1$ //$NON-NLS-2$
+        {
+            return null;
+        }
+        String fragment = proxyUri.fragment();
+        if (fragment == null || !fragment.startsWith("/")) //$NON-NLS-1$
+        {
+            return null;
+        }
+        String name = fragment.substring(1);
+        return name.isEmpty() || name.indexOf('/') >= 0 ? null : name;
     }
 
     private static String platformPictureNameFromProxyUri(URI proxyUri)

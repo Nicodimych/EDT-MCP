@@ -37,7 +37,7 @@ public enum ToolGroup
         "Content assist, documentation, metadata and common-picture browsing, and references", //$NON-NLS-1$
         "get_content_assist", "get_platform_documentation", "get_metadata_objects", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         "get_metadata_details", "list_subsystems", "get_subsystem_content", "find_references", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
-        "list_common_pictures", "export_common_picture"), //$NON-NLS-1$ //$NON-NLS-2$
+        "list_common_pictures", "export_common_picture", "search_in_dcs"), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 
     TAGS("tags", "Tags", //$NON-NLS-1$ //$NON-NLS-2$
         "Metadata tag management", //$NON-NLS-1$
@@ -51,7 +51,9 @@ public enum ToolGroup
         "create_infobase", "delete_infobase", "update_database", "launch", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
         "terminate_launch", "run_yaxunit_tests", "ask_workmate", "get_job_status", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
         "cancel_job", "build_external_objects", "set_infobase_credentials", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-        "export_configuration_to_file"), //$NON-NLS-1$
+        "export_configuration_to_file", //$NON-NLS-1$
+        "workmate_chat_create", "workmate_chat_send", "workmate_chat_history", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        "workmate_chat_list", "workmate_chat_drop"), //$NON-NLS-1$ //$NON-NLS-2$
 
     DEBUG("debug", "Debugging", //$NON-NLS-1$ //$NON-NLS-2$
         "Breakpoints, stepping, variables, expression evaluation, and profiling", //$NON-NLS-1$

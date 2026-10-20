@@ -94,7 +94,9 @@ public class AskWorkmateToolTest
         assertTrue(properties.has("workmateArgs")); //$NON-NLS-1$
         assertTrue(properties.has("mode")); //$NON-NLS-1$
         assertTrue(properties.has("shareMcpTools")); //$NON-NLS-1$
-        assertEquals(10, properties.size());
+        assertTrue(properties.has("rulesSource")); //$NON-NLS-1$
+        assertTrue(properties.has("skills")); //$NON-NLS-1$
+        assertEquals(12, properties.size());
 
         String projectDescription = properties.getAsJsonObject("projectName") //$NON-NLS-1$
             .get("description").getAsString(); //$NON-NLS-1$

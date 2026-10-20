@@ -15,7 +15,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -160,6 +159,31 @@ public final class BinaryToXmlConverter
             }
             return String.join(", ", extensions); //$NON-NLS-1$
         }
+    }
+
+    /** The project kind EDT derives from an XML dump. */
+    public enum DumpKind
+    {
+        CONFIGURATION, EXTENSION, EXTERNAL, UNREADABLE
+    }
+
+    /**
+     * Classifies a dump with at most one parse of Configuration.xml. An absent root means
+     * external objects, as in EDT's CLI; an existing root that cannot be parsed is unknown.
+     *
+     * @param xmlDir the XML dump directory
+     * @return the detected project kind
+     */
+    public static DumpKind dumpKind(Path xmlDir)
+    {
+        Path configurationXml = xmlDir.resolve("Configuration.xml"); //$NON-NLS-1$
+        if (Files.notExists(configurationXml))
+        {
+            return DumpKind.EXTERNAL;
+        }
+        Boolean extension = isExtensionDump(configurationXml);
+        return extension == null ? DumpKind.UNREADABLE
+            : extension.booleanValue() ? DumpKind.EXTENSION : DumpKind.CONFIGURATION;
     }
 
     /**
@@ -511,7 +535,7 @@ public final class BinaryToXmlConverter
      * @return whether it declares {@code ObjectBelonging=Adopted} (an extension), or {@code null}
      *     when it cannot be parsed
      */
-    static Boolean isExtensionDump(Path configurationXml)
+    public static Boolean isExtensionDump(Path configurationXml)
     {
         try
         {
@@ -728,8 +752,7 @@ public final class BinaryToXmlConverter
         private static InfobaseReference temporaryInfobase(Path infobaseDir)
         {
             InfobaseReference infobase = InfobaseReferences.newFileInfobaseReference(infobaseDir.toString());
-            infobase.setUuid(UUID.randomUUID());
-            infobase.setName("EDT-MCP import"); //$NON-NLS-1$
+            InfobaseReferenceFactory.named(infobase, "EDT-MCP import"); //$NON-NLS-1$
             return infobase;
         }
     }

@@ -304,6 +304,26 @@ public class WorkmateVersionCompatTest
         }
     }
 
+    @Test
+    public void testExtended9ArgRequestConstructorIsFound()
+    {
+        Constructor<?> extended = WorkmateGateway.findExtendedConversationRequestConstructor(
+            Extended9ArgRequest.class, FakeSession.class);
+        assertNotNull(extended);
+        assertEquals(9, extended.getParameterCount());
+        assertSame(IProject.class, extended.getParameterTypes()[0]);
+    }
+
+    public static final class Extended9ArgRequest
+    {
+        public Extended9ArgRequest(IProject project, String message, FakeSession session,
+            boolean firstTurn, String skill, Boolean chat, Integer maxToolRounds,
+            java.util.Set<String> allowedTools, Object completionPolicy)
+        {
+            // Workmate 1.0.8 9-argument SendUserMessageRequest shape.
+        }
+    }
+
     private static IProject projectProxy()
     {
         return (IProject)Proxy.newProxyInstance(IProject.class.getClassLoader(),

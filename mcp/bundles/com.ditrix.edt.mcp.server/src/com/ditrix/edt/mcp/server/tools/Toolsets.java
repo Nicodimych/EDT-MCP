@@ -139,7 +139,7 @@ public final class Toolsets
             "get_metadata_objects", "get_metadata_details"); //$NON-NLS-1$ //$NON-NLS-2$
 
         assign(METADATA,
-            "create_metadata", "modify_metadata", "delete_metadata", "dcs", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            "create_metadata", "modify_metadata", "delete_metadata", "dcs", "search_in_dcs", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
             "rename_metadata_object", "adopt_metadata_object", //$NON-NLS-1$ //$NON-NLS-2$
             "list_common_pictures", "export_common_picture", //$NON-NLS-1$ //$NON-NLS-2$
             "get_subsystem_content", "list_subsystems", //$NON-NLS-1$ //$NON-NLS-2$
@@ -160,6 +160,8 @@ public final class Toolsets
 
         assign(TESTING,
             "run_yaxunit_tests", "debug_yaxunit_tests", "ask_workmate", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            "workmate_chat_create", "workmate_chat_send", "workmate_chat_history", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            "workmate_chat_list", "workmate_chat_drop", //$NON-NLS-1$ //$NON-NLS-2$
             "get_job_status", "cancel_job"); //$NON-NLS-1$ //$NON-NLS-2$
 
         assign(PROFILING,

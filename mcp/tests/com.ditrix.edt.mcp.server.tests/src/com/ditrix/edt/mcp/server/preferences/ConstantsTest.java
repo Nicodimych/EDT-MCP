@@ -50,11 +50,16 @@ public class ConstantsTest
     @Test
     public void testDisabledToolsDefault()
     {
-        // Two tools ship DISABLED by default (opt-in): the powerful raw 'git' command tool,
-        // and 'ask_workmate', which hands the question to an external plugin that reaches a
-        // cloud service and can change the configuration with its own tools.
+        // Seven tools ship DISABLED by default (opt-in): the powerful raw 'git' command tool;
+        // 'ask_workmate', which hands the question to an external plugin that reaches a
+        // cloud service and can change the configuration with its own tools; and the five
+        // 'workmate_chat_*' tools, which talk to the same cloud service through a stored
+        // conversation cursor.
         assertNotNull(PreferenceConstants.DEFAULT_DISABLED_TOOLS);
-        assertEquals("git,ask_workmate", PreferenceConstants.DEFAULT_DISABLED_TOOLS);
+        assertEquals("git,ask_workmate," //$NON-NLS-1$
+            + "workmate_chat_create,workmate_chat_send,workmate_chat_history," //$NON-NLS-1$
+            + "workmate_chat_list,workmate_chat_drop", //$NON-NLS-1$
+            PreferenceConstants.DEFAULT_DISABLED_TOOLS);
     }
 
     @Test

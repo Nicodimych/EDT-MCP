@@ -158,4 +158,37 @@ public class WorkmateIdleTimeoutTest
             ender.join(2_000L);
         }
     }
+
+    @Test
+    public void testNativeProgressListenerTicksAndInFlightKeepTurnAlive() throws Exception
+    {
+        java.util.concurrent.atomic.AtomicLong turnTicks =
+            new java.util.concurrent.atomic.AtomicLong();
+        java.util.concurrent.atomic.AtomicInteger nativeInFlight =
+            new java.util.concurrent.atomic.AtomicInteger();
+        CompletableFuture<Object> turn = new CompletableFuture<>();
+        Thread progressTicker = new Thread(() -> {
+            try
+            {
+                // Hold a native tool call in flight across two idle windows (2 x 200ms),
+                // then emit a progress tick and finish the turn.
+                nativeInFlight.incrementAndGet();
+                Thread.sleep(450L);
+                nativeInFlight.decrementAndGet();
+                turnTicks.incrementAndGet();
+                Thread.sleep(100L);
+                turn.complete("ok"); //$NON-NLS-1$
+            }
+            catch (InterruptedException e)
+            {
+                Thread.currentThread().interrupt();
+            }
+        });
+        progressTicker.setDaemon(true);
+        progressTicker.start();
+
+        Object result = WorkmateGateway.awaitTurn(turn, 5_000L, turnTicks, nativeInFlight);
+        org.junit.Assert.assertEquals("ok", result); //$NON-NLS-1$
+        progressTicker.join(2_000L);
+    }
 }

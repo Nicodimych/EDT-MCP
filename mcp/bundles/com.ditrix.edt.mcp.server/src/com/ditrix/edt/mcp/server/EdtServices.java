@@ -43,7 +43,9 @@ import com._1c.g5.v8.dt.md.MdPlugin;
 import com._1c.g5.v8.dt.md.refactoring.core.IMdRefactoringService;
 import com._1c.g5.v8.dt.md.ui.presentation.IPresentationService;
 import com._1c.g5.v8.dt.navigator.providers.INavigatorContentProviderStateProvider;
+import com._1c.g5.v8.dt.platform.IRuntimeRegistry;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociationManager;
+import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociationContextProvider;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseManager;
 import com._1c.g5.v8.dt.rights.IRightInfosService;
 import com._1c.g5.v8.dt.rights.RightsPlugin;
@@ -69,6 +71,7 @@ import com.google.inject.Injector;
 public class EdtServices
 {
     /** Service trackers */
+    private ServiceTracker<IRuntimeRegistry, IRuntimeRegistry> runtimeRegistryTracker;
     private ServiceTracker<IV8ProjectManager, IV8ProjectManager> v8ProjectManagerTracker;
     private ServiceTracker<IDtProjectManager, IDtProjectManager> dtProjectManagerTracker;
     private ServiceTracker<IWorkspaceOrchestrator, IWorkspaceOrchestrator> workspaceOrchestratorTracker;
@@ -87,6 +90,7 @@ public class EdtServices
     private ServiceTracker<IApplicationManager, IApplicationManager> applicationManagerTracker;
     private ServiceTracker<IInfobaseManager, IInfobaseManager> infobaseManagerTracker;
     private ServiceTracker<IInfobaseAssociationManager, IInfobaseAssociationManager> infobaseAssociationManagerTracker;
+    private ServiceTracker<IInfobaseAssociationContextProvider, IInfobaseAssociationContextProvider> infobaseAssociationContextProviderTracker;
     private ServiceTracker<INavigatorContentProviderStateProvider, INavigatorContentProviderStateProvider> navigatorStateProviderTracker;
     private ServiceTracker<IMdRefactoringService, IMdRefactoringService> mdRefactoringServiceTracker;
     private ServiceTracker<IFormRefactoringService, IFormRefactoringService> formRefactoringServiceTracker;
@@ -162,6 +166,9 @@ public class EdtServices
     public void init(BundleContext context)
     {
         // Initialize service trackers
+        runtimeRegistryTracker = new ServiceTracker<>(context, IRuntimeRegistry.class, null);
+        runtimeRegistryTracker.open();
+
         v8ProjectManagerTracker = new ServiceTracker<>(context, IV8ProjectManager.class, null);
         v8ProjectManagerTracker.open();
 
@@ -219,6 +226,9 @@ public class EdtServices
         infobaseAssociationManagerTracker =
             new ServiceTracker<>(context, IInfobaseAssociationManager.class, null);
         infobaseAssociationManagerTracker.open();
+        infobaseAssociationContextProviderTracker =
+            new ServiceTracker<>(context, IInfobaseAssociationContextProvider.class, null);
+        infobaseAssociationContextProviderTracker.open();
 
         navigatorStateProviderTracker = new ServiceTracker<>(context, INavigatorContentProviderStateProvider.class, null);
         navigatorStateProviderTracker.open();
@@ -312,6 +322,7 @@ public class EdtServices
 
         // Close service trackers (each closeTracker() closes when non-null and returns null,
         // exactly reproducing the former "if (t != null) { t.close(); t = null; }" per-field block). // NOSONAR explanatory comment, not commented-out code
+        runtimeRegistryTracker = closeTracker(runtimeRegistryTracker);
         v8ProjectManagerTracker = closeTracker(v8ProjectManagerTracker);
         dtProjectManagerTracker = closeTracker(dtProjectManagerTracker);
         workspaceOrchestratorTracker = closeTracker(workspaceOrchestratorTracker);
@@ -329,6 +340,7 @@ public class EdtServices
         applicationManagerTracker = closeTracker(applicationManagerTracker);
         infobaseManagerTracker = closeTracker(infobaseManagerTracker);
         infobaseAssociationManagerTracker = closeTracker(infobaseAssociationManagerTracker);
+        infobaseAssociationContextProviderTracker = closeTracker(infobaseAssociationContextProviderTracker);
         navigatorStateProviderTracker = closeTracker(navigatorStateProviderTracker);
         mdRefactoringServiceTracker = closeTracker(mdRefactoringServiceTracker);
         formRefactoringServiceTracker = closeTracker(formRefactoringServiceTracker);
@@ -385,6 +397,12 @@ public class EdtServices
             tracker.close();
         }
         return null;
+    }
+
+    /** @return supported platform runtimes, or {@code null} when the service is unavailable */
+    public IRuntimeRegistry getRuntimeRegistry()
+    {
+        return runtimeRegistryTracker == null ? null : runtimeRegistryTracker.getService();
     }
 
     /**
@@ -624,13 +642,14 @@ public class EdtServices
         return infobaseManagerTracker.getService();
     }
 
-    /**
-     * Returns the IInfobaseAssociationManager service for binding infobases to
-     * configuration projects (and removing those bindings).
-     * Used by create_infobase and delete_infobase.
-     *
-     * @return infobase association manager or null if not available
-     */
+    /** Returns EDT's current-context provider, or null while platform services are unavailable. */
+    public IInfobaseAssociationContextProvider getInfobaseAssociationContextProvider()
+    {
+        return infobaseAssociationContextProviderTracker == null ? null
+            : infobaseAssociationContextProviderTracker.getService();
+    }
+
+    /** Returns the service for binding and unbinding project infobases, or null if unavailable. */
     public IInfobaseAssociationManager getInfobaseAssociationManager()
     {
         if (infobaseAssociationManagerTracker == null)

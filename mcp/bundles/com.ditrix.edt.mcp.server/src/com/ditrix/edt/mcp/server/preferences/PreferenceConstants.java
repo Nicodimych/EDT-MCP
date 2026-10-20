@@ -1,4 +1,4 @@
-﻿/**
+/**
  * MCP Server for EDT
  * Copyright (C) 2025 DitriX (https://github.com/DitriXNew)
  * Licensed under AGPL-3.0-or-later
@@ -85,6 +85,9 @@ public final class PreferenceConstants
     /** Comma-separated list of disabled tool names */
     public static final String PREF_DISABLED_TOOLS = "mcpDisabledTools"; //$NON-NLS-1$
 
+    /** Stable ID of the selected tool preset; custom selections explicitly store "custom". */
+    public static final String PREF_TOOL_PRESET_ID = "mcpToolPresetId"; //$NON-NLS-1$
+
     /**
      * Schema version of the tool-enablement preferences, so a NEW default-disabled tool also lands
      * disabled on an installation whose store already persisted an explicit {@link #PREF_DISABLED_TOOLS}
@@ -105,12 +108,27 @@ public final class PreferenceConstants
      * gain three older tools whose own descriptions declare them destructive; 10 = a stored
      * no-debug preset gains {@code debug_pause}, a tool that did not exist when it was saved;
      * 11 = stored read-only profiles gain the new {@code import_project_from_file} project importer;
-     * 12 = they gain the new {@code export_configuration_to_file} infobase dump.
+     * 12 = they gain the new {@code export_configuration_to_file} infobase dump;
+     * 13 = record preset provenance after the legacy migrations, without adding disabled tools;
+     * 14 = every stored list gains the five {@code workmate_chat_*} tools, which ship OFF by
+     * default like {@code ask_workmate}.
+     * <p>
+     * 13 and 14 are SEPARATE steps and neither may reuse the other's number: version 13 shipped
+     * in the upstream release 2.21.1 (preset provenance), so an installation that already recorded
+     * 13 must still run 14 - otherwise the chat tools would read as "enabled" there.
      */
-    public static final int TOOL_PREFS_MIGRATION_VERSION = 12;
+    public static final int TOOL_PREFS_MIGRATION_VERSION = 14;
 
-    /** The raw {@code git} command tool is powerful, so it ships DISABLED by default (opt-in). */
-    public static final String DEFAULT_DISABLED_TOOLS = "git,ask_workmate"; //$NON-NLS-1$
+    /**
+     * Tools that ship DISABLED by default (opt-in): the powerful raw {@code git} command tool;
+     * {@code ask_workmate}, which hands the question to an external plugin that reaches a cloud
+     * service and can change the configuration with its own tools; and the five
+     * {@code workmate_chat_*} tools, which talk to the same cloud service through a stored
+     * conversation cursor.
+     */
+    public static final String DEFAULT_DISABLED_TOOLS = "git,ask_workmate," //$NON-NLS-1$
+        + "workmate_chat_create,workmate_chat_send,workmate_chat_history," //$NON-NLS-1$
+        + "workmate_chat_list,workmate_chat_drop"; //$NON-NLS-1$
 
     // === Progressive tool disclosure (dynamic toolsets) ===
 

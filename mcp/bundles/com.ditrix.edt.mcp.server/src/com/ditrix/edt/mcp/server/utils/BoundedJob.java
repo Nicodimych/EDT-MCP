@@ -401,7 +401,12 @@ public final class BoundedJob
      * {@link Outcome#TIMED_OUT} or {@link Outcome#INTERRUPTED}, this method still returns on time and
      * the callback runs later when the Job manager reports the Job done. A non-null callback is
      * invoked exactly once, including when the job is cancelled before entering {@code work}. If
-     * scheduling itself raises, the callback runs before that failure is propagated.
+     * scheduling itself raises, the callback runs before that failure is propagated. Otherwise it
+     * runs on whichever thread EDT delivers the job's {@code done} notification on - e.g. the job's
+     * worker, or a thread that cancels the job, possibly before this method returns - so it must not
+     * block. A job that a suspended Job manager still holds has not ended: this method answers
+     * {@link Outcome#NOT_RUN} for it, and the callback comes only once that job has ended - it ran,
+     * or something cancelled it.
      *
      * @param jobName the job name shown in EDT's progress UI
      * @param timeoutMs the caller's deadline in milliseconds
@@ -432,6 +437,20 @@ public final class BoundedJob
     public static Result run(String jobName, long timeoutMs, IBoundedWork work, Runnable completion,
         IJobScheduler scheduler)
     {
+        return run(jobName, timeoutMs, work, completion, scheduler, null);
+    }
+
+    /** Optional nonblocking admission closure, called BEFORE abandoning the bounded wait. */
+    public static Result runWithCancellation(String jobName, long timeoutMs, IBoundedWork work,
+            Runnable beforeCancellation)
+    {
+        return run(jobName, timeoutMs, work, null, McpJobs::schedule, beforeCancellation);
+    }
+
+    private static Result run(String jobName, long timeoutMs, IBoundedWork work, Runnable completion,
+            IJobScheduler scheduler, Runnable beforeCancellation)
+    {
+        Runnable cancelAdmission = beforeCancellation == null ? () -> { } : beforeCancellation;
         long startMs = System.currentTimeMillis();
         // Written by the job thread, read by the calling thread only after join() reports the job
         // finished — that report is the happens-before edge. On the TIMED_OUT path they are not
@@ -458,6 +477,12 @@ public final class BoundedJob
                 // before the question is put (JobManager.endJob), so a normal run never spends
                 // the token.
                 return scheduledOnce.compareAndSet(false, true);
+            }
+
+            @Override
+            protected void canceling()
+            {
+                cancelAdmission.run();
             }
 
             @Override
@@ -488,6 +513,7 @@ public final class BoundedJob
         }
         catch (RuntimeException | Error e)
         {
+            cancelAdmission.run();
             if (completionListener != null)
             {
                 completionListener.complete();
@@ -503,6 +529,7 @@ public final class BoundedJob
         catch (InterruptedException e)
         {
             Thread.currentThread().interrupt();
+            cancelAdmission.run();
             job.cancel();
             return new Result(Outcome.INTERRUPTED, System.currentTimeMillis() - startMs, e);
         }
@@ -511,6 +538,7 @@ public final class BoundedJob
         {
             // Ask the platform call to unwind at its next monitor poll. It may never poll —
             // hence the caller already stopped waiting, and the job may outlive this call.
+            cancelAdmission.run();
             job.cancel();
             if (!enteredWork.get() && leftTheSchedulerWithoutStarting(job, enteredWork))
             {

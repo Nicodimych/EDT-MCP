@@ -42,6 +42,7 @@ import com.ditrix.edt.mcp.server.utils.CliReflectionErrors;
 import com.ditrix.edt.mcp.server.utils.FrontMatter;
 import com.ditrix.edt.mcp.server.utils.McpJobs;
 import com.ditrix.edt.mcp.server.utils.PlatformFailures;
+import com.ditrix.edt.mcp.server.utils.ProjectImportValidation;
 import com.ditrix.edt.mcp.server.utils.WorkspacePaths;
 
 /**
@@ -107,6 +108,9 @@ public class ImportConfigurationFromXmlTool implements IMcpTool
     /** Input param: path of the source directory of XML files. */
     private static final String KEY_IMPORT_PATH = "importPath"; //$NON-NLS-1$
 
+    private static final String KEY_PLATFORM_VERSION = "platformVersion"; //$NON-NLS-1$
+    private static final String KEY_BASE_PROJECT_NAME = "baseProjectName"; //$NON-NLS-1$
+
     /**
      * How long the post-import project start is waited for before the tool answers
      * {@code state: importing} (5 minutes).
@@ -159,7 +163,13 @@ public class ImportConfigurationFromXmlTool implements IMcpTool
     @Override
     public String getDescription()
     {
-        return "Create an EDT project from exported 1C configuration XML files. Parameters and examples: " //$NON-NLS-1$
+        return "Create an EDT project from exported 1C configuration XML files. Use platformVersion " //$NON-NLS-1$
+            + "for the new project's runtime, derived from the dump by default " //$NON-NLS-1$
+            + "(xmlVersion is a deprecated alias; conflicting values are refused). projectNature " //$NON-NLS-1$
+            + "checks the dump kind and refuses mismatches. For extensions, pass baseProjectName; " //$NON-NLS-1$
+            + "omit it for main configurations; optional for external objects. " //$NON-NLS-1$
+            + "With a base, omit platformVersion and xmlVersion: the runtime is inherited. " //$NON-NLS-1$
+            + "Parameters and examples: " //$NON-NLS-1$
             + "get_tool_guide('import_configuration_from_xml')."; //$NON-NLS-1$
     }
 
@@ -172,9 +182,16 @@ public class ImportConfigurationFromXmlTool implements IMcpTool
             .stringProperty(McpKeys.PROJECT_NAME,
                 "Name of the NEW EDT project to create (must not already exist).", true) //$NON-NLS-1$
             .stringProperty("projectNature", //$NON-NLS-1$
-                "Optional EDT nature ID, e.g. 'com._1c.g5.v8.dt.core.V8ConfigurationNature'; empty = auto-detect.") //$NON-NLS-1$
+                "Check the dump's EDT nature ID, e.g. 'com._1c.g5.v8.dt.core.V8ConfigurationNature'; " //$NON-NLS-1$
+                    + "mismatch is refused; empty = auto-detect.") //$NON-NLS-1$
+            .stringProperty(KEY_PLATFORM_VERSION,
+                "Runtime version of the NEW project, e.g. '8.3.24'; empty = derive from the XML dump; " //$NON-NLS-1$
+                    + "refused with baseProjectName.") //$NON-NLS-1$
+            .stringProperty(KEY_BASE_PROJECT_NAME,
+                "Open configuration base: required for extensions, refused for main configurations, " //$NON-NLS-1$
+                    + "optional for external objects; the runtime is inherited.") //$NON-NLS-1$
             .stringProperty("xmlVersion", //$NON-NLS-1$
-                "Optional XML format version, e.g. '8.3.20'; empty = auto-detect.") //$NON-NLS-1$
+                "Deprecated alias of platformVersion; omit it or pass the same value.") //$NON-NLS-1$
             .build();
     }
 
@@ -213,18 +230,20 @@ public class ImportConfigurationFromXmlTool implements IMcpTool
 
         String importPathStr = JsonUtils.extractStringArgument(params, KEY_IMPORT_PATH);
         String projectName = JsonUtils.extractStringArgument(params, McpKeys.PROJECT_NAME);
-        String projectNature = JsonUtils.extractStringArgument(params, "projectNature"); //$NON-NLS-1$
-        String xmlVersion = JsonUtils.extractStringArgument(params, "xmlVersion"); //$NON-NLS-1$
-
-        // projectNature and xmlVersion are optional - pass null on empty
-        if (projectNature != null && projectNature.isEmpty())
+        String projectNature = ProjectImportValidation.trimToNull(
+            JsonUtils.extractStringArgument(params, "projectNature")); //$NON-NLS-1$
+        String platformVersion = ProjectImportValidation.trimToNull(
+            JsonUtils.extractStringArgument(params, KEY_PLATFORM_VERSION));
+        String baseProjectName = ProjectImportValidation.trimToNull(
+            JsonUtils.extractStringArgument(params, KEY_BASE_PROJECT_NAME));
+        String xmlVersion = ProjectImportValidation.trimToNull(
+            JsonUtils.extractStringArgument(params, "xmlVersion")); //$NON-NLS-1$
+        if (platformVersion != null && xmlVersion != null && !platformVersion.equals(xmlVersion))
         {
-            projectNature = null;
+            return ToolResult.error("platformVersion '" + platformVersion + "' conflicts with deprecated " //$NON-NLS-1$ //$NON-NLS-2$
+                + "xmlVersion '" + xmlVersion + "'. Pass platformVersion only, or use matching values.").toJson(); //$NON-NLS-1$ //$NON-NLS-2$
         }
-        if (xmlVersion != null && xmlVersion.isEmpty())
-        {
-            xmlVersion = null;
-        }
+        platformVersion = platformVersion != null ? platformVersion : xmlVersion;
 
         IWorkspace workspace = ResourcesPlugin.getWorkspace();
         boolean importApiEntered = false;
@@ -256,9 +275,52 @@ public class ImportConfigurationFromXmlTool implements IMcpTool
                     "importPath is not a directory: " + importPath).toJson(); //$NON-NLS-1$
             }
 
-            // Claimed BEFORE the existence guard below, because that guard is exactly what a
-            // concurrent import slips past: it answers about a project the other call has not
-            // created yet.
+            if (baseProjectName == null)
+            {
+                String versionError = ProjectImportValidation.validateRuntimeVersion(platformVersion);
+                if (versionError != null)
+                {
+                    return ToolResult.error(versionError).toJson();
+                }
+            }
+
+            // Preserve the existing-project refusal before dump/base validation. Repeat this
+            // preflight check under the claim, because a project can be created during validation.
+            IProject existing = workspace.getRoot().getProject(projectName);
+            String existingProjectError = "Project already exists in workspace: " + projectName //$NON-NLS-1$
+                + ". Import requires a new project name."; //$NON-NLS-1$
+            if (existing != null && existing.exists())
+            {
+                return ToolResult.error(existingProjectError).toJson();
+            }
+
+            AtomicReference<IProject> baseProject = new AtomicReference<>();
+            String dumpError = ProjectImportValidation.validateXmlDump(importPath, projectNature,
+                baseProjectName, baseProject);
+            if (dumpError != null)
+            {
+                return ToolResult.error(dumpError).toJson();
+            }
+
+            if (baseProject.get() != null && platformVersion != null)
+            {
+                return ToolResult.error("platformVersion '" + platformVersion //$NON-NLS-1$
+                    + "' cannot be set with baseProjectName '" + baseProjectName //$NON-NLS-1$
+                    + "': the runtime version is inherited from the base project. " //$NON-NLS-1$
+                    + "Omit platformVersion and its deprecated alias xmlVersion.").toJson(); //$NON-NLS-1$
+            }
+            String runtimeVersion = baseProject.get() == null ? platformVersion
+                : ProjectImportValidation.runtimeVersionOf(baseProject.get());
+
+            if (baseProject.get() != null && runtimeVersion == null)
+            {
+                return ToolResult.error("Base project '" + baseProjectName //$NON-NLS-1$
+                    + "' is not ready: its runtime version cannot be read yet. " //$NON-NLS-1$
+                    + "Retry when list_projects shows it ready.").toJson(); //$NON-NLS-1$
+            }
+
+            // Claim only after all dump, base and runtime refusals have passed.
+            // The claim must still cover the existence check and the actual CLI import.
             String concurrent = claimImport(projectName);
             if (concurrent != null)
             {
@@ -266,18 +328,11 @@ public class ImportConfigurationFromXmlTool implements IMcpTool
             }
             claimed = true;
 
-            // The tool's contract is "import into a NEW project", so reject early
-            // if a workspace project with this name already exists. Without this
-            // check the underlying EDT API still throws (with a less direct
-            // message) and we'd surface it via the catch block - but a clean
-            // up-front error is friendlier and matches the validation pattern
-            // used elsewhere (DeleteMetadataTool, CleanProjectTool, etc.).
-            IProject existing = workspace.getRoot().getProject(projectName);
+            // Recheck while holding the claim: another import may have created the project
+            // after the preflight check but finished and released its claim before ours.
             if (existing != null && existing.exists())
             {
-                return ToolResult.error(
-                    "Project already exists in workspace: " + projectName //$NON-NLS-1$
-                  + ". Import requires a new project name.").toJson(); //$NON-NLS-1$
+                return ToolResult.error(existingProjectError).toJson();
             }
 
             Object api = runner.importApi();
@@ -302,7 +357,7 @@ public class ImportConfigurationFromXmlTool implements IMcpTool
             }
 
             importApiEntered = true;
-            runner.runImport(api, importPath, projectName, projectNature, xmlVersion);
+            runner.runImport(api, importPath, projectName, runtimeVersion, baseProjectName);
             importApiReturned = true;
 
             return reportImportedProject(workspace, projectName, importPath, outsideWorkspace,
@@ -642,8 +697,37 @@ public class ImportConfigurationFromXmlTool implements IMcpTool
             return abandoned;
         }
         callerStoppedWaiting.set(true);
+        return concludeTheStep(project, projectName, lifecycle, result.getOutcome(),
+            result.getFailure(), phase, refreshDone, stepClaimed);
+    }
 
-        BoundedJob.Outcome runOutcome = result.getOutcome();
+    /**
+     * Decides what the post-import step observed once the bounded wait has ended: a step the
+     * body may not have entered is abandoned if the caller can still claim it, and otherwise the
+     * answer is how far the body got.
+     *
+     * <p>Separate from {@link #startImportedProject} so every wait outcome can be decided
+     * headless. One of them has no deterministic route through the scheduler seam: a
+     * {@code TIMED_OUT} whose cancelled job a worker held in {@code ABOUT_TO_RUN} past
+     * {@link BoundedJob}'s grace, the body never entered. Holding a worker there takes a job
+     * listener that blocks, and the platform answers one by logging a possible deadlock and
+     * delivering job events unserialised for the rest of the JVM - so that case is pinned here,
+     * at the decision, and not end to end.
+     *
+     * @param project the imported project
+     * @param projectName the imported project name, for the log line
+     * @param lifecycle the platform lifecycle to drive
+     * @param runOutcome how the bounded wait ended
+     * @param runFailure what the bounded run reported as its failure, or {@code null}
+     * @param phase how far the step has got, as the job body advanced it
+     * @param refreshDone set once the workspace refresh has returned
+     * @param stepClaimed the ownership token shared with the job body
+     * @return what was observed
+     */
+    static StartOutcome concludeTheStep(IProject project, String projectName,
+        IImportLifecycle lifecycle, BoundedJob.Outcome runOutcome, Throwable runFailure,
+        AtomicReference<StartPhase> phase, AtomicBoolean refreshDone, AtomicBoolean stepClaimed)
+    {
         if (mayNotHaveEnteredTheWork(runOutcome))
         {
             // Every outcome but COMPLETED may have left the body unentered - NOT_RUN from a
@@ -660,7 +744,7 @@ public class ImportConfigurationFromXmlTool implements IMcpTool
         // Only a COMPLETED run hands over the body's own failure. An INTERRUPTED one carries the
         // interruption of THIS wait, not a failure of the step - which is still running and owns
         // the latch - so it must not be rendered as a failed refresh whose latch "was released".
-        Throwable failure = runOutcome == BoundedJob.Outcome.COMPLETED ? result.getFailure() : null;
+        Throwable failure = runOutcome == BoundedJob.Outcome.COMPLETED ? runFailure : null;
         if (failure != null)
         {
             return new StartOutcome(
@@ -1184,12 +1268,12 @@ public class ImportConfigurationFromXmlTool implements IMcpTool
          * @param api the API returned by {@link #importApi()}
          * @param importPath the normalized source directory of XML files
          * @param projectName the project to create
-         * @param projectNature the EDT nature id, or {@code null} for auto-detect
-         * @param xmlVersion the XML format version, or {@code null} for auto-detect
+         * @param platformVersion the platform version, or {@code null} to derive it from the XML
+         * @param baseProjectName the configuration project extended by the dump, or {@code null}
          * @throws Exception whatever the CLI API or the reflection raises
          */
-        void runImport(Object api, Path importPath, String projectName, String projectNature,
-            String xmlVersion) throws Exception; // NOSONAR the CLI API is reached by reflection
+        void runImport(Object api, Path importPath, String projectName, String platformVersion,
+            String baseProjectName) throws Exception; // NOSONAR the CLI API is reached by reflection
     }
 
     /**
@@ -1260,13 +1344,13 @@ public class ImportConfigurationFromXmlTool implements IMcpTool
         }
 
         @Override
-        public void runImport(Object api, Path importPath, String projectName, String projectNature,
-            String xmlVersion) throws Exception // NOSONAR the CLI API is reached by reflection
+        public void runImport(Object api, Path importPath, String projectName, String platformVersion,
+            String baseProjectName) throws Exception // NOSONAR the CLI API is reached by reflection
         {
-            // importProject(Path importSource, String projectName, String nature, String xmlVersion)
+            // importProject(Path importSource, String projectName, String version, String baseProjectName)
             Method method = api.getClass().getMethod("importProject", //$NON-NLS-1$
                 Path.class, String.class, String.class, String.class);
-            method.invoke(api, importPath, projectName, projectNature, xmlVersion);
+            method.invoke(api, importPath, projectName, platformVersion, baseProjectName);
         }
     }
 }

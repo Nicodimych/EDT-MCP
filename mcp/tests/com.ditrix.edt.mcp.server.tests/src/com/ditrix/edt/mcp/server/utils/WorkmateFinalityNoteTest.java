@@ -94,5 +94,19 @@ public class WorkmateFinalityNoteTest
             "ValueTable holds rows and typed columns.", null, null, 2, false, true));
         assertTrue(rendered.contains("Completion not confirmed"));
         assertFalse("this text WAS accepted as an answer", rendered.contains("Not an answer"));
+        assertTrue(rendered.contains("| declaredFinal | false |"));
+        assertTrue(rendered.contains("| continuations | 2 |"));
+    }
+
+    @Test
+    public void testClarifyingQuestionMarksAwaitingUserReply() throws Exception
+    {
+        String rendered = renderAnswer(new WorkmateResponse(
+            "\u0423\u0442\u043E\u0447\u043D\u0438\u0442\u0435 \u0432\u0430\u0440\u0438\u0430\u043D\u0442: 1) \u0421\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A 2) \u0420\u0435\u0433\u0438\u0441\u0442\u0440?", //$NON-NLS-1$
+            null, 1, 0, false, false, true));
+        assertTrue(rendered.contains("| declaredFinal | false |"));
+        assertTrue(rendered.contains("| awaitingUserReply | true |"));
+        assertTrue(rendered.contains("Awaiting user reply."));
+        assertFalse(rendered.contains("Completion not confirmed"));
     }
 }
