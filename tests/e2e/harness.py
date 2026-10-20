@@ -23,6 +23,57 @@ import threading
 import time
 import urllib.request
 import urllib.error
+import uuid
+
+def cleanup_cluster_registration_probe(name, server, reference, registration_id=None):
+    """Remove only an exact synthetic probe from the launcher file, even if EDT cannot see it.
+
+    Normal cleanup uses the application ID first. The fallback uses delete_infobase's
+    explicit registration UUID path, never rewrites the launcher file itself, and
+    returns the number of leftovers so the test fails on leaked registrations.
+    """
+    if not re.fullmatch(r"McpServerRegistration_McpRegistrationProbe_[0-9a-f]{16}", name):
+        raise ValueError("launcher cleanup requires a uniquely named cluster registration probe")
+    if name != "McpServerRegistration_" + reference or server != "localhost:1541":
+        raise ValueError("launcher cleanup target does not match the synthetic probe")
+    path = os.environ.get("EDT_MCP_INFOBASE_LIST")
+    if not path:
+        path = (os.path.join(os.environ["APPDATA"], "1C", "1CEStart", "ibases.v8i")
+                if os.name == "nt" else
+                os.path.expanduser("~/.1C/1cestart/ibases.v8i"))
+    if not os.path.isfile(path):
+        return 0
+    with open(path, "rb") as stream:
+        original = stream.read()
+    starts = list(re.finditer(rb"(?m)^(?:\xef\xbb\xbf)?\[([^\r\n]+)\]\r?$", original))
+    removals = []
+    for index, match in enumerate(starts):
+        # Some launcher files place a UTF-8 BOM before the first section header.
+        if match.group(1).decode("utf-8") != name:
+            continue
+        end = starts[index + 1].start() if index + 1 < len(starts) else len(original)
+        section = original[match.start():end]
+        connect = re.search(rb"(?m)^Connect=(.*)\r?$", section)
+        if not connect or connect.group(1).rstrip(b"\r").decode("utf-8") != (
+                'Srvr="%s";Ref="%s";' % (server, reference)):
+            raise AssertionError("refusing to remove a probe whose launcher address differs")
+        identifier = re.search(rb"(?m)^ID=([^\r\n]+)", section)
+        if registration_id is None or identifier is None or (
+                identifier.group(1).decode("ascii").lower() != str(uuid.UUID(registration_id))):
+            raise AssertionError("refusing launcher cleanup without the exact returned registrationId")
+        removals.append((match.start(), end))
+    if not removals:
+        return 0
+    if len(removals) != 1:
+        raise AssertionError("ambiguous probe name in launcher list; inspect it in EDT")
+    result = call("delete_infobase", {"projectName": PROJECT, "infobaseName": name,
+                  "registrationId": registration_id,
+                  "deleteRegistration": True, "deleteDatabaseFiles": False, "confirm": True})
+    assert_ok(result, "cleanup a cluster probe independently of application visibility")
+    with open(path, "rb") as stream:
+        remaining = stream.read()
+    assert ("[" + name + "]").encode("utf-8") not in remaining, "probe is still in the launcher file"
+    return len(removals)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Configuration (read once at import; the orchestrator sets env BEFORE importing)
@@ -150,6 +201,10 @@ NON_BASE_PROBE_FQNS = {
     ],
 }
 
+# The fixture projects that HAVE a configuration root of their own (an external-objects project
+# has none), so the root brace of the reset post-condition is captured for exactly these.
+ROOT_FINGERPRINT_PROJECTS = (PROJECT, TESTS_PROJECT, SUPPORTED_PROJECT)
+
 # Kept as the single-value alias some tests/messages still read.
 BASELINE_PROBE_FQN = BASELINE_PROBE_FQNS[0]
 
@@ -186,6 +241,18 @@ MODEL_SETTLE_ATTEMPTS = int(os.environ.get("E2E_MODEL_SETTLE_ATTEMPTS", "3"))
 BUILDING_RETRY_TIMEOUT = int(os.environ.get("E2E_BUILDING_RETRY_TIMEOUT", "120"))
 # The server's derived-data "still building, retry" refusal, in any response channel.
 _BUILDING_REFUSAL_RE = re.compile(r"Project is building|Please wait and retry", re.IGNORECASE)
+
+# Every transient building refusal call() received this run, as the server worded it. call()
+# retries them away, so without this record no test could ever look at their text (issue #769:
+# the wording leaked a JVM object identity for months while every refusal was silently retried).
+# Capped so a long run cannot grow it without bound; the first refusals are as good as any.
+_BUILDING_REFUSALS_SEEN = []
+_BUILDING_REFUSALS_CAP = 200
+
+
+def building_refusals_seen():
+    """The texts of the transient building refusals call() has received so far this run."""
+    return list(_BUILDING_REFUSALS_SEEN)
 
 # The longest ONE logical call() can take: the retry loop keeps re-issuing a building refusal for
 # BUILDING_RETRY_TIMEOUT, the attempt in flight when that elapses still gets its full CALL_TIMEOUT,
@@ -519,7 +586,10 @@ def call(tool, arguments):
                     "a %s request died in flight, so the server may still be executing it" % tool)
             raise
         result = Result(raw)
-        if not _is_transient_building(result) or time.time() >= deadline:
+        building = _is_transient_building(result)
+        if building and len(_BUILDING_REFUSALS_SEEN) < _BUILDING_REFUSALS_CAP:
+            _BUILDING_REFUSALS_SEEN.append(result.error_text())
+        if not building or time.time() >= deadline:
             _record_outcome(tool, arguments, result.is_error, result.structured)
             return result
         attempt += 1
@@ -667,6 +737,9 @@ _UNRESOLVED_CASCADE_CALLS = 0
 # verification deliberately continue to read it exactly as before.
 _BASELINE_INVENTORY_BY_PROJECT = {}
 _BASELINE_DETAILS_BY_PROJECT = {}
+# The third brace: the configuration ROOT's own properties, per project that has a root. See
+# _root_fingerprint.
+_BASELINE_ROOT_BY_PROJECT = {}
 _BASELINE_INVENTORY = None
 _BASELINE_DETAILS = None
 # The OPTIONAL fixtures, so final_cleanup cannot require their model refresh to succeed. A
@@ -963,6 +1036,62 @@ def _probe_details(project=PROJECT, fqns=None):
     return text
 
 
+def _root_fingerprint(project=PROJECT):
+    """The project's configuration ROOT as get_configuration_properties renders it, or None when it
+    cannot be read AS EVIDENCE (a tool error or an empty body).
+
+    The third brace of the post-condition. modify_metadata writes the root's own properties (its
+    version, vendor, synonym, ... - issue #741), and neither of the other two braces reads the root:
+    the inventory lists the top objects, the detail probes read three of them. A root write that
+    survived a reset would therefore be certified as reset, and fail a later, innocent test - one that
+    asserts the fixture's synonym, say, or the languages it keeps in use. get_configuration_properties
+    renders exactly those properties, in one cheap call.
+
+    A TIMEOUT propagates, like every other probe's: it arms the global latch and means the request may
+    still be running server-side."""
+    try:
+        r = call("get_configuration_properties", {"projectName": project})
+    except E2ECallTimeout:
+        raise
+    except Exception:
+        return None
+    if r.is_error:
+        return None
+    text = (r.text or "").strip()
+    return text or None
+
+
+def _capture_root_baseline(project):
+    """Record the root fingerprint of `project` when it has a root and it can be read as evidence."""
+    if project not in ROOT_FINGERPRINT_PROJECTS:
+        return
+    root = _root_fingerprint(project)
+    if root is not None:
+        _BASELINE_ROOT_BY_PROJECT[project] = root
+    elif project == PROJECT:
+        # Degraded, not broken - but say so: without it a root write that survives a reset goes unseen.
+        print("!! the configuration root of %s could not be fingerprinted - the reset post-condition "
+              "cannot see a root write that survives it" % project, flush=True)
+
+
+def _root_mismatch(project):
+    """Why `project`'s configuration root no longer matches its captured baseline, or None.
+
+    Applied only when a root baseline was captured - the same degradation as the other braces: no
+    baseline, no brace. A root that cannot be read once the baseline exists is a mismatch, because a
+    post-condition must not certify what it could not look at."""
+    baseline = _BASELINE_ROOT_BY_PROJECT.get(project)
+    if baseline is None:
+        return None
+    root = _root_fingerprint(project)
+    if root is None:
+        return "the configuration root of %s could not be read as evidence" % project
+    if root != baseline:
+        return ("the configuration root of %s (get_configuration_properties) no longer matches the "
+                "baseline - a write to 'Configuration' survived" % project)
+    return None
+
+
 def snapshot_model_baseline():
     """Record the pristine fingerprints once, before the first test runs.
 
@@ -979,12 +1108,14 @@ def snapshot_model_baseline():
     global _BASELINE_INVENTORY, _BASELINE_DETAILS
     _BASELINE_INVENTORY_BY_PROJECT.clear()
     _BASELINE_DETAILS_BY_PROJECT.clear()
+    _BASELINE_ROOT_BY_PROJECT.clear()
     _BASELINE_INVENTORY = _top_object_inventory()
     if _BASELINE_INVENTORY is not None:
         _BASELINE_INVENTORY_BY_PROJECT[PROJECT] = _BASELINE_INVENTORY
     _BASELINE_DETAILS = _probe_details()
     if _BASELINE_DETAILS is not None:
         _BASELINE_DETAILS_BY_PROJECT[PROJECT] = _BASELINE_DETAILS
+    _capture_root_baseline(PROJECT)
     for project in (TESTS_PROJECT,) + OPTIONAL_FIXTURE_PROJECTS:
         if project in OPTIONAL_FIXTURE_PROJECTS and project not in _OPTIONAL_MODELS_SYNCED:
             # Its disk was still reverted, but an absent, unloaded or otherwise uncleanable
@@ -1009,6 +1140,7 @@ def snapshot_model_baseline():
         details = _probe_details(project, NON_BASE_PROBE_FQNS[project])
         if details is not None:
             _BASELINE_DETAILS_BY_PROJECT[project] = details
+        _capture_root_baseline(project)
     return (_BASELINE_INVENTORY is not None, _BASELINE_DETAILS is not None)
 
 
@@ -1679,7 +1811,8 @@ def _baseline_mismatch():
 
     Both braces are needed and neither subsumes the other: the INVENTORY sees a top object that
     appeared, vanished or was renamed; the DETAIL of BASELINE_PROBE_FQNS sees a change INSIDE one
-    - a property, a child, a synonym - which leaves every name identical.
+    - a property, a child, a synonym - which leaves every name identical. A third brace, the ROOT
+    (_root_fingerprint), sees a write to the configuration root itself, which neither of them reads.
 
     Best-effort by construction: anything that cannot be read counts as a mismatch and the caller
     retries the whole revert+clean cycle (or, for the shortcut, simply does not skip it). A call
@@ -1701,7 +1834,8 @@ def _baseline_mismatch():
     if _BASELINE_DETAILS is not None and text != _BASELINE_DETAILS:
         return "%s still resolve, but their detail no longer matches the baseline - something "\
             "INSIDE one of them changed" % ", ".join(BASELINE_PROBE_FQNS)
-    return None
+    # The root brace: a write to the configuration root changes neither the inventory nor the probes.
+    return _root_mismatch(PROJECT)
 
 
 def _settle_progress_note(progress):
@@ -2306,6 +2440,11 @@ def _non_base_mismatch(project, rel):
             return "the top-object inventory for %s could not be read" % project
         if inventory != baseline:
             return _inventory_difference_against(inventory, baseline)
+    # The root brace, applied when its own baseline was captured (an extension's root is as writable
+    # as the base's, and neither the inventory nor the detail probes read it).
+    root_mismatch = _root_mismatch(project)
+    if root_mismatch is not None:
+        return root_mismatch
     detail_baseline = _BASELINE_DETAILS_BY_PROJECT.get(project)
     if detail_baseline is None:
         return None

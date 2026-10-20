@@ -28,6 +28,8 @@ import org.junit.Test;
 import com.ditrix.edt.mcp.server.tools.IMcpTool.ResponseType;
 import com.ditrix.edt.mcp.server.utils.ConsentPreview;
 import com.ditrix.edt.mcp.server.utils.DestructiveConsentGate;
+import com.ditrix.edt.mcp.server.utils.git.BlockingJob;
+import com.ditrix.edt.mcp.server.utils.git.BranchBindingLock;
 import com.ditrix.edt.mcp.server.tools.impl.GitTool.CommandRejectedException;
 
 /**
@@ -1871,12 +1873,12 @@ public class GitToolTest
     @Test
     public void testEscapingRunsAfterRedactionSoASecondUrlsCredentialIsStillMasked()
     {
-        StringBuilder out = new StringBuilder();
+        GitTool.OutputBuffer out = new GitTool.OutputBuffer();
         // Built from the code point: a raw VT in the source would be invisible on review.
-        out.append("https://public/path").append((char)0x0B) //$NON-NLS-1$
+        out.text.append("https://public/path").append((char)0x0B) //$NON-NLS-1$
             .append("https://secret@host/repo"); //$NON-NLS-1$
 
-        GitTool.Capture captured = GitTool.capture(out, new boolean[1], true);
+        GitTool.Capture captured = GitTool.capture(out, true);
 
         assertFalse("the SECOND url's credential must still be masked - escaping before the " //$NON-NLS-1$
             + "redaction erases the boundary between the two urls and hides it from the scan. Got: " //$NON-NLS-1$
@@ -1897,10 +1899,10 @@ public class GitToolTest
     @Test
     public void testEscapingRunsAfterRedactionSoAControlByteDoesNotWidenTheCredentialScan()
     {
-        StringBuilder out = new StringBuilder();
-        out.append("https://plain.example").append((char)0x0B).append("user@else.com"); //$NON-NLS-1$ //$NON-NLS-2$
+        GitTool.OutputBuffer out = new GitTool.OutputBuffer();
+        out.text.append("https://plain.example").append((char)0x0B).append("user@else.com"); //$NON-NLS-1$ //$NON-NLS-2$
 
-        GitTool.Capture captured = GitTool.capture(out, new boolean[1], true);
+        GitTool.Capture captured = GitTool.capture(out, true);
 
         assertTrue("the readable host must survive: the redaction's scan ends at the VT, and the " //$NON-NLS-1$
             + "escaping must not remove that boundary before the redaction has looked at it. Got: " //$NON-NLS-1$
@@ -1919,17 +1921,17 @@ public class GitToolTest
     @Test
     public void testEscapedOutputIsCutBackToTheBudgetAndFlagged()
     {
-        StringBuilder out = new StringBuilder();
-        while (out.length() < GitTool.MAX_OUTPUT_CHARS)
+        GitTool.OutputBuffer out = new GitTool.OutputBuffer();
+        while (out.text.length() < GitTool.MAX_OUTPUT_CHARS)
         {
-            out.append("ab").append((char)0x01); //$NON-NLS-1$
+            out.text.append("ab").append((char)0x01); //$NON-NLS-1$
         }
-        out.setLength(GitTool.MAX_OUTPUT_CHARS);
+        out.text.setLength(GitTool.MAX_OUTPUT_CHARS);
         // Positive control: without growth past the cap this test would pass on any implementation.
         assertTrue("escaping must grow this text past the cap, or the assertions below prove nothing", //$NON-NLS-1$
-            GitTool.escapeControlBytes(out.toString()).length() > GitTool.MAX_OUTPUT_CHARS);
+            GitTool.escapeControlBytes(out.text.toString()).length() > GitTool.MAX_OUTPUT_CHARS);
 
-        GitTool.Capture captured = GitTool.capture(out, new boolean[]{false}, true);
+        GitTool.Capture captured = GitTool.capture(out, true);
 
         assertTrue("the cap bounds what is sent, but " + captured.text.length() + " was returned", //$NON-NLS-1$ //$NON-NLS-2$
             captured.text.length() <= GitTool.MAX_OUTPUT_CHARS);
@@ -2046,5 +2048,50 @@ public class GitToolTest
             assertNotNull(expected.getMessage());
             assertFalse(expected.getMessage().isBlank());
         }
+    }
+
+    // ==================== #656 round 5: which commands move the branch, and the refresh after them ====================
+
+    @Test
+    public void testOnlyTheCommandsThatCanMoveTheCheckedOutBranchAreBranchChanging() throws Exception
+    {
+        for (String moving : new String[] {"checkout feature/x", "switch -c x", "branch -m renamed", "pull --rebase", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            "stash branch from-stash"}) //$NON-NLS-1$
+        {
+            assertTrue("'" + moving + "' can move the checked-out branch", //$NON-NLS-1$ //$NON-NLS-2$
+                GitTool.changesBranch(GitTool.parseCommand(moving)));
+        }
+        for (String staying : new String[] {"stash", "stash push -m note", "stash list", "stash pop", "merge feature/x", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
+            "cherry-pick abc123", "revert abc123", "fetch origin", "status", "commit -m msg"}) //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
+        {
+            assertFalse("'" + staying + "' does not move the checked-out branch", //$NON-NLS-1$ //$NON-NLS-2$
+                GitTool.changesBranch(GitTool.parseCommand(staying)));
+        }
+    }
+
+    /**
+     * The refresh after a branch-changing command is where EDT's workspace catches up with the new branch: one that
+     * outlives its bounded wait is recorded as still running for the refreshed projects until it ends, so a detach
+     * for them refuses meanwhile. After any other command the wait is a plain bounded join and records nothing.
+     */
+    @Test(timeout = 60_000)
+    public void testARefreshAfterABranchChangeThatOutlivesItsWaitIsRecordedUntilItEnds() throws Exception
+    {
+        BlockingJob afterSwitch = BlockingJob.running();
+        BlockingJob afterMerge = BlockingJob.running();
+        try
+        {
+            GitTool.awaitRefresh(afterSwitch, 100, true, List.of("Switched")); //$NON-NLS-1$
+            GitTool.awaitRefresh(afterMerge, 100, false, List.of("Merged")); //$NON-NLS-1$
+            assertEquals("Switched", BranchBindingLock.inFlightAmong(List.of("Switched"))); //$NON-NLS-1$ //$NON-NLS-2$
+            assertNull("a refresh after a command that moves no branch is not recorded", //$NON-NLS-1$
+                BranchBindingLock.inFlightAmong(List.of("Merged"))); //$NON-NLS-1$
+        }
+        finally
+        {
+            afterSwitch.finish();
+            afterMerge.finish();
+        }
+        BlockingJob.awaitNotInFlight("Switched"); //$NON-NLS-1$
     }
 }

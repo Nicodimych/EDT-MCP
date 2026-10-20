@@ -9,7 +9,6 @@ package com.ditrix.edt.mcp.server.tools.impl;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
-import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.OperationCanceledException;
@@ -50,11 +49,12 @@ import com.ditrix.edt.mcp.server.protocol.jsonrpc.ToolAnnotations;
 import com.ditrix.edt.mcp.server.tools.IMcpTool;
 import com.ditrix.edt.mcp.server.utils.ConsentPreview;
 import com.ditrix.edt.mcp.server.utils.McpJobs;
-import com.ditrix.edt.mcp.server.utils.ProjectContext;
 import com.ditrix.edt.mcp.server.utils.DestructiveConsentGate;
+import com.ditrix.edt.mcp.server.utils.git.BranchBindingLock;
 import com.ditrix.edt.mcp.server.utils.git.GitFailureLog;
 import com.ditrix.edt.mcp.server.utils.git.GitCommonDirectory;
 import com.ditrix.edt.mcp.server.utils.git.GitRepositoryResolver;
+import com.ditrix.edt.mcp.server.utils.git.WorkTreeProjects;
 
 /**
  * Runs a git command in a project's repository via the real {@code git} CLI - the non-UI equivalent of
@@ -566,6 +566,25 @@ public class GitTool implements IMcpTool
             "clean", "apply", "cherry-pick", "revert"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
 
     /**
+     * Subcommands that can change the branch a project's repository has checked out ({@code branch} through
+     * {@code -m}/{@code -M} on the checked-out branch; {@code pull} through {@code --rebase} or a configured
+     * {@code pull.rebase}, which detaches HEAD while the rebase runs and leaves it detached when it stops on a
+     * conflict): they run under {@link BranchBindingLock}, the lock {@code set_branch_infobase}'s binding changes
+     * take (#656), so none lands between a detach's re-check and EDT's write. {@code stash} joins them in its
+     * {@code stash branch <name>} form, which checks a new branch out ({@link #changesBranch}). The rest of
+     * {@link #ALLOWED_SUBCOMMANDS} moves no branch: {@code merge}, {@code cherry-pick} and {@code revert} commit
+     * on the checked-out branch, conflict or not; {@code fetch} never moves HEAD; {@code rebase} itself is not on
+     * it.
+     */
+    private static final Set<String> BRANCH_CHANGING = Set.of("checkout", "switch", "branch", "pull"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+
+    /** The subcommand whose {@code branch} form checks a new branch out ({@code git stash branch <name>}). */
+    private static final String STASH = "stash"; //$NON-NLS-1$
+
+    /** {@code git stash}'s subcommand that checks a new branch out. */
+    private static final String STASH_BRANCH = "branch"; //$NON-NLS-1$
+
+    /**
      * A transport-helper remote ({@code <helper>::<address>}, e.g. {@code ext::sh -c ...} / {@code fd::})
      * - rejected: the {@code ext} helper runs an arbitrary command, and {@code remote add}/{@code set-url}
      * would PERSIST it (beyond what {@code GIT_ALLOW_PROTOCOL} blocks at use time). The two-colon form
@@ -709,18 +728,17 @@ public class GitTool implements IMcpTool
             // The refresh budget starts HERE, not before the consent prompt: an operator taking a
             // minute to approve must not eat the wait the workspace refresh needs afterwards.
             long startedAt = System.nanoTime();
-            String output = runGit(argv, workTree);
             // A command that rewrites the working tree changed files behind Eclipse's back: refresh the
             // project so the workspace - and the EDT model built on it - sees them. Refreshed on ANY
-            // outcome, not just success: a merge/cherry-pick/revert that hits conflicts, fails late
-            // (e.g. while signing) or times out has usually ALREADY updated the index and worktree, and
+            // outcome of the process, not just success: a merge/cherry-pick/revert that hits conflicts, fails
+            // late (e.g. while signing) or times out has usually ALREADY updated the index and worktree, and
             // leaving EDT stale after that is worse than a redundant refresh. Best-effort: a refresh
-            // failure is logged, never turned into a failed git result.
-            if (changesWorkTree(argv))
-            {
-                refreshWorkTree(workTree, startedAt);
-            }
-            return output;
+            // failure is logged, never turned into a failed git result. A branch-changing command keeps
+            // the binding lock through it (runGit).
+            boolean branchChanging = changesBranch(argv);
+            Runnable refresh = changesWorkTree(argv) ? () -> refreshWorkTree(workTree, startedAt, branchChanging)
+                : null;
+            return runGit(argv, workTree, refresh);
         }
         catch (Exception e) // NOSONAR unattended-safety: no exception may escape the tool (CLAUDE.md #8)
         {
@@ -3005,19 +3023,52 @@ public class GitTool implements IMcpTool
     }
 
     /**
+     * Whether this command can change the branch the repository has checked out, so it runs under
+     * {@link BranchBindingLock} (#656): a {@link #BRANCH_CHANGING} subcommand, or {@code stash} with
+     * {@code branch} among its arguments. {@code git stash branch <name> [<stash>]} checks a new branch out
+     * (measured on git 2.35.1: "Switched to a new branch"); there {@code branch} must come right after
+     * {@code stash} (an option before it makes git refuse the command), but any {@code branch} argument is
+     * taken, so a version that parses the subcommand later is covered too - a pathspec or message spelled
+     * {@code branch} is then merely serialized with the binding changes, which is harmless.
+     *
+     * @param argv the parsed command ({@code git} first)
+     * @return {@code true} for a command that can move the checked-out branch
+     */
+    static boolean changesBranch(List<String> argv)
+    {
+        if (argv.size() < 2)
+        {
+            return false;
+        }
+        String subcommand = argv.get(1);
+        if (BRANCH_CHANGING.contains(subcommand))
+        {
+            return true;
+        }
+        return STASH.equals(subcommand) && argv.subList(2, argv.size()).contains(STASH_BRANCH);
+    }
+
+    /**
      * Refreshes every workspace project inside {@code workTree} so Eclipse - and the EDT model built
      * on it - picks up the files git changed on disk. Runs on ANY outcome, not just a successful one:
      * a merge or cherry-pick that hit conflicts, failed late or timed out has usually already updated
      * the worktree. Best-effort: a failure is logged and never turned into a failed git result.
      *
+     * <p>
+     * After a branch-changing command the refresh runs while the caller still holds {@link BranchBindingLock}
+     * (#656): it is where EDT's workspace catches up with the new branch, so no detach is re-checked and written
+     * in the middle of it. A refresh that outlives its bounded wait is recorded as still running for the
+     * refreshed projects until it ends ({@link #awaitRefresh}), and a detach for them refuses meanwhile.
+     *
      * @param workTree the repository work tree whose projects must be refreshed
      * @param startedAt the call's start timestamp, so the wait shares the command's own budget
+     * @param branchChanging whether the command could change the checked-out branch ({@link #changesBranch})
      */
-    private static void refreshWorkTree(File workTree, long startedAt)
+    private static void refreshWorkTree(File workTree, long startedAt, boolean branchChanging)
     {
         try
         {
-            refreshWorkTreeUnguarded(workTree, startedAt);
+            refreshWorkTreeUnguarded(workTree, startedAt, branchChanging);
         }
         catch (RuntimeException e) // NOSONAR the git command already succeeded; a refresh never fails it
         {
@@ -3028,9 +3079,9 @@ public class GitTool implements IMcpTool
         }
     }
 
-    private static void refreshWorkTreeUnguarded(File workTree, long startedAt)
+    private static void refreshWorkTreeUnguarded(File workTree, long startedAt, boolean branchChanging)
     {
-        List<IProject> projects = projectsInside(workTree);
+        List<IProject> projects = WorkTreeProjects.inside(workTree);
         if (projects.isEmpty())
         {
             return;
@@ -3062,10 +3113,7 @@ public class GitTool implements IMcpTool
             long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
             long budgetMillis = TIMEOUT_SECONDS * 1000L - elapsedMillis;
             long waitMillis = Math.min(REFRESH_WAIT_SECONDS * 1000L, budgetMillis);
-            if (waitMillis > 0)
-            {
-                refresh.join(waitMillis, null);
-            }
+            awaitRefresh(refresh, waitMillis, branchChanging, WorkTreeProjects.names(projects));
         }
         catch (InterruptedException e)
         {
@@ -3078,71 +3126,28 @@ public class GitTool implements IMcpTool
     }
 
     /**
-     * The OPEN workspace projects whose location lies inside {@code workTree}.
-     * <p>
-     * Several Eclipse projects can share one git worktree, and a command runs from its ROOT: a
-     * checkout or pull changes the siblings too, so refreshing only the addressed project would leave
-     * their models stale for the next MCP call.
+     * Waits for the post-command refresh. After a branch-changing command the wait goes through
+     * {@link BranchBindingLock#awaitOrTrack}: a refresh that outlives it ({@code waitMillis <= 0} waits not at
+     * all) is recorded as still running for {@code projects} until it ends, before the caller releases the lock.
+     * After any other command it is a plain bounded join.
      *
-     * @param workTree the repository work tree
-     * @return the projects to refresh (never {@code null})
+     * @param refresh the scheduled refresh Job
+     * @param waitMillis what is left of the call's budget for the wait
+     * @param branchChanging whether the command could change the checked-out branch
+     * @param projects the names of the projects the Job refreshes
+     * @throws InterruptedException when the waiting thread was interrupted (the refresh is recorded first)
      */
-    private static List<IProject> projectsInside(File workTree)
+    static void awaitRefresh(Job refresh, long waitMillis, boolean branchChanging, List<String> projects)
+        throws InterruptedException
     {
-        List<IProject> inside = new ArrayList<>();
-        Path root;
-        try
+        if (branchChanging)
         {
-            root = workTree.toPath().toRealPath();
+            BranchBindingLock.awaitOrTrack(refresh, waitMillis, () -> projects);
         }
-        catch (IOException e)
+        else if (waitMillis > 0)
         {
-            root = workTree.toPath().toAbsolutePath().normalize();
+            refresh.join(waitMillis, null);
         }
-        for (IProject project : ProjectContext.allProjects())
-        {
-            IPath location = project.getLocation();
-            if (!project.isOpen() || location == null)
-            {
-                continue;
-            }
-            Path projectPath = bestEffortRealPath(location.toFile().toPath());
-            if (projectPath.startsWith(root))
-            {
-                inside.add(project);
-            }
-        }
-        return inside;
-    }
-
-    /**
-     * Canonicalizes as much of a path as still EXISTS, then appends the rest lexically.
-     * <p>
-     * A checkout can DELETE a project's directory - exactly the project whose model must be
-     * refreshed - so plain canonicalization is not available. Resolving the nearest existing ancestor
-     * first keeps a symlinked ancestor from smuggling an OUTSIDE location past the containment test,
-     * which a purely lexical path would allow.
-     *
-     * @param path the path to resolve
-     * @return the best canonical form available
-     */
-    private static Path bestEffortRealPath(Path path)
-    {
-        Path absolute = path.toAbsolutePath().normalize();
-        for (Path existing = absolute; existing != null; existing = existing.getParent())
-        {
-            try
-            {
-                Path real = existing.toRealPath();
-                Path missing = existing.relativize(absolute);
-                return missing.toString().isEmpty() ? real : real.resolve(missing);
-            }
-            catch (IOException e) // NOSONAR walk further up: this ancestor is gone too
-            {
-                continue;
-            }
-        }
-        return absolute;
     }
 
     private static void refreshProject(IProject project, IProgressMonitor monitor)
@@ -3174,8 +3179,60 @@ public class GitTool implements IMcpTool
      * {@link #capture}, so what leaves here is credential-redacted and has its control bytes escaped
      * as {@code \xNN}. What that does and does not promise is stated at
      * {@link #escapeControlBytes}.
+     * <p>
+     * A command that can change the checked-out branch ({@link #changesBranch}) runs under
+     * {@link BranchBindingLock}, taken here - after the consent prompt, never across it - and held for the bounded
+     * process and its bounded post-process step; one that waits {@link BranchBindingLock#WAIT_SECONDS} for it is
+     * not run.
      */
     String runGit(List<String> argv, File workTree)
+    {
+        return runGit(argv, workTree, null);
+    }
+
+    /**
+     * {@link #runGit(List, File)}, then {@code afterProcess} (the workspace refresh, or {@code null}) once the
+     * process has run, whatever its outcome - inside the lock when the command can change the checked-out branch,
+     * so EDT's workspace catches up with the new branch before a detach can take the lock (#656). A command that
+     * was not run, because the lock stayed busy, runs no step either.
+     */
+    String runGit(List<String> argv, File workTree, Runnable afterProcess)
+    {
+        if (!changesBranch(argv))
+        {
+            String output = runGitProcess(argv, workTree);
+            runAfterProcess(afterProcess);
+            return output;
+        }
+        if (!BranchBindingLock.tryLock())
+        {
+            String safeCommand = redactCredentialUrls(String.join(" ", argv)); //$NON-NLS-1$
+            return ToolResult.error("'" + safeCommand + "' was not run: " + BranchBindingLock.busyReason() //$NON-NLS-1$ //$NON-NLS-2$
+                + ". Nothing was changed; retry.") //$NON-NLS-1$
+                .put(KEY_COMMAND, safeCommand).toJson();
+        }
+        try
+        {
+            String output = runGitProcess(argv, workTree);
+            runAfterProcess(afterProcess);
+            return output;
+        }
+        finally
+        {
+            BranchBindingLock.unlock();
+        }
+    }
+
+    private static void runAfterProcess(Runnable afterProcess)
+    {
+        if (afterProcess != null)
+        {
+            afterProcess.run();
+        }
+    }
+
+    /** {@link #runGit}'s process, under {@link BranchBindingLock} when the subcommand needs it. */
+    private String runGitProcess(List<String> argv, File workTree)
     {
         ProcessBuilder builder = new ProcessBuilder(withNonInteractiveConfig(argv));
         builder.directory(workTree);
@@ -3184,7 +3241,7 @@ public class GitTool implements IMcpTool
         // would otherwise be added to the command's - a stalled config would push a fetch past the
         // 120 s the guide promises.
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
-        hardenEnv(builder.environment(), workTree);
+        hardenEnv(builder.environment(), workTree, argv.get(0));
 
         String shellForm = String.join(" ", argv); //$NON-NLS-1$
         // Echoed back in every result and error: redacted like the output, so a credential that
@@ -3196,14 +3253,13 @@ public class GitTool implements IMcpTool
         // process.descendants() no longer reports them, so a late capture would find nothing.
         List<ProcessHandle> descendants = new ArrayList<>();
         boolean drainFinished = false;
-        StringBuilder out = new StringBuilder();
-        boolean[] truncated = {false};
+        OutputBuffer out = new OutputBuffer();
         try
         {
             process = builder.start();
             process.getOutputStream().close(); // no stdin
             final Process started = process;
-            drain = new Thread(() -> drainBounded(started, out, truncated), "git-output-drain"); //$NON-NLS-1$
+            drain = new Thread(() -> drainBounded(started, out), "git-output-drain"); //$NON-NLS-1$
             drain.setDaemon(true);
             drain.start();
 
@@ -3213,7 +3269,7 @@ public class GitTool implements IMcpTool
                 closeQuietly(process.getInputStream()); // unblock a drain a survivor still feeds
                 drain.join(DRAIN_JOIN_MILLIS);
                 drainFinished = !drain.isAlive();
-                Capture captured = capture(out, truncated, drainFinished);
+                Capture captured = capture(out, drainFinished);
                 ToolResult timeout = ToolResult.error("'" + safeCommand + "' timed out after " + TIMEOUT_SECONDS //$NON-NLS-1$ //$NON-NLS-2$
                     + " seconds and was killed. Check network connectivity / the remote, or run a smaller " //$NON-NLS-1$
                     + "command.") //$NON-NLS-1$
@@ -3227,7 +3283,7 @@ public class GitTool implements IMcpTool
             drain.join(DRAIN_JOIN_MILLIS);
             drainFinished = !drain.isAlive();
             int exitCode = process.exitValue();
-            Capture captured = capture(out, truncated, drainFinished);
+            Capture captured = capture(out, drainFinished);
             ToolResult result = exitCode == 0
                 ? ToolResult.success()
                 : ToolResult.error("git exited with code " + exitCode + " for '" + safeCommand //$NON-NLS-1$ //$NON-NLS-2$
@@ -3243,14 +3299,14 @@ public class GitTool implements IMcpTool
         {
             Activator.logError("git: failed to run '" + safeCommand + "'", e); //$NON-NLS-1$ //$NON-NLS-2$
             return ToolResult.error("Failed to run '" + safeCommand + "': " + e.getMessage()) //$NON-NLS-1$ //$NON-NLS-2$
-                .put(KEY_COMMAND, safeCommand).put(KEY_OUTPUT, snapshot(out, truncated)).toJson();
+                .put(KEY_COMMAND, safeCommand).put(KEY_OUTPUT, snapshot(out)).toJson();
         }
         catch (InterruptedException e)
         {
             Thread.currentThread().interrupt(); // restore the interrupt flag
             // Carries the output like every other exit path: an interrupt can land AFTER git already
             // produced everything, and dropping it would hide what actually happened.
-            Capture captured = capture(out, truncated, false);
+            Capture captured = capture(out, false);
             ToolResult interrupted = ToolResult.error("'" + safeCommand + "' was interrupted.") //$NON-NLS-1$ //$NON-NLS-2$
                 .put(KEY_COMMAND, safeCommand).put(KEY_OUTPUT, captured.text);
             if (captured.truncated)
@@ -3351,15 +3407,16 @@ public class GitTool implements IMcpTool
      * executed here.
      *
      * @param workTree the repository work tree to read the configuration in
+     * @param gitExecutable the main call's executable token, preserving the host's lookup
      * @return the configured command, or {@code null} when unset, empty or unreadable
      */
-    private static String configuredSshCommand(File workTree)
+    private static String configuredSshCommand(File workTree, String gitExecutable)
     {
         Process process = null;
         try
         {
             ProcessBuilder probe =
-                new ProcessBuilder("git", "config", "--get", "core.sshCommand"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                new ProcessBuilder(gitExecutable, "config", "--get", "core.sshCommand"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             probe.directory(workTree);
             probe.redirectErrorStream(true);
             scrubInheritedGitEnv(probe.environment());
@@ -3375,7 +3432,8 @@ public class GitTool implements IMcpTool
                     new BufferedReader(new InputStreamReader(reading.getInputStream(), StandardCharsets.UTF_8)))
                 {
                     firstLine.set(reader.readLine());
-                    while (reader.readLine() != null)
+                    String ignored;
+                    while ((ignored = reader.readLine()) != null)
                     {
                         // keep draining so git can finish writing
                     }
@@ -4130,9 +4188,9 @@ public class GitTool implements IMcpTool
     }
 
     /** @return a thread-safe snapshot of the drained output so far. */
-    private static String snapshot(StringBuilder out, boolean[] truncated)
+    private static String snapshot(OutputBuffer out)
     {
-        return capture(out, truncated, false).text;
+        return capture(out, false).text;
     }
 
     /**
@@ -4163,19 +4221,18 @@ public class GitTool implements IMcpTool
      * back by {@link #cutToEscapeBoundary} and reported as truncated.
      *
      * @param out the shared output buffer
-     * @param truncated the drain thread's truncation flag
      * @param complete whether the drain finished, i.e. the buffer cannot be mid-write
      * @return both values, consistent with each other
      */
-    static Capture capture(StringBuilder out, boolean[] truncated, boolean complete)
+    static Capture capture(OutputBuffer out, boolean complete)
     {
-        synchronized (out)
+        synchronized (out.monitor)
         {
             // The flag is read under the SAME lock the drain thread appends (and sets it) with: a
             // plain read could still see 'false' for a drain that is alive past join(), and the
             // half-written URL that flag guards would then be returned unredacted.
-            String text = out.toString();
-            boolean cut = truncated[0];
+            String text = out.text.toString();
+            boolean cut = out.truncated;
             // The dangling tail is dropped for an INCOMPLETE drain too, not only for cap-truncated
             // output: a background child can be mid-write when we capture, and a half-written
             // 'https://<secret' carries no '@' for the redaction to recognise.
@@ -4190,6 +4247,14 @@ public class GitTool implements IMcpTool
             }
             return new Capture(safe, cut);
         }
+    }
+
+    /** Owns the output text, truncation flag and their shared monitor. */
+    static final class OutputBuffer
+    {
+        private final Object monitor = new Object();
+        final StringBuilder text = new StringBuilder();
+        boolean truncated;
     }
 
     /** An output snapshot together with the truncation flag it was taken with. */
@@ -4620,7 +4685,7 @@ public class GitTool implements IMcpTool
      * machine's own {@code ~/.gitconfig} are deliberately KEPT: authentication and repository config are
      * the machine's, exactly like the developer's terminal.
      */
-    private static void hardenEnv(Map<String, String> env, File workTree)
+    private static void hardenEnv(Map<String, String> env, File workTree, String gitExecutable)
     {
         env.put("GIT_TERMINAL_PROMPT", "0"); // a missing credential fails fast, never a hanging prompt //$NON-NLS-1$ //$NON-NLS-2$
         env.put("GIT_PAGER", "cat"); // never invoke a pager (would block) //$NON-NLS-1$ //$NON-NLS-2$
@@ -4644,7 +4709,7 @@ public class GitTool implements IMcpTool
         // core.sshCommand, so setting it unconditionally would discard the custom identity / port /
         // wrapper that makes the remote work in the user's own terminal. When they configured one we
         // leave it alone and rely on the askpass settings above plus the call timeout.
-        if (env.get("GIT_SSH_COMMAND") == null && configuredSshCommand(workTree) == null) //$NON-NLS-1$
+        if (env.get("GIT_SSH_COMMAND") == null && configuredSshCommand(workTree, gitExecutable) == null) //$NON-NLS-1$
         {
             env.put("GIT_SSH_COMMAND", "ssh -oBatchMode=yes"); //$NON-NLS-1$ //$NON-NLS-2$
             // An inherited GIT_SSH_VARIANT (e.g. 'plink') would make git format the arguments for
@@ -4687,7 +4752,7 @@ public class GitTool implements IMcpTool
     }
 
     /** Drains the process' combined output into {@code out}, stopping appends at {@link #MAX_OUTPUT_CHARS}. */
-    private static void drainBounded(Process process, StringBuilder out, boolean[] truncated)
+    private static void drainBounded(Process process, OutputBuffer out)
     {
         try (BufferedReader reader =
             new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)))
@@ -4696,18 +4761,18 @@ public class GitTool implements IMcpTool
             int read;
             while ((read = reader.read(buffer)) != -1)
             {
-                synchronized (out)
+                synchronized (out.monitor)
                 {
-                    int room = MAX_OUTPUT_CHARS - out.length();
+                    int room = MAX_OUTPUT_CHARS - out.text.length();
                     if (room <= 0)
                     {
-                        truncated[0] = true;
+                        out.truncated = true;
                         continue; // keep draining (so the process does not block on a full pipe), but stop storing
                     }
-                    out.append(buffer, 0, Math.min(read, room));
+                    out.text.append(buffer, 0, Math.min(read, room));
                     if (read > room)
                     {
-                        truncated[0] = true;
+                        out.truncated = true;
                     }
                 }
             }

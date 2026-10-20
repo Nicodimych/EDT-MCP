@@ -70,10 +70,11 @@ public class ToolSettingsServiceTest
         "export_configuration_to_file"); //$NON-NLS-1$
 
     /*
-     * Version 13 additions: the five workmate_chat_* tools ship OFF by default, so version 13 adds
+     * Version 14 additions: the five workmate_chat_* tools ship OFF by default, so version 14 adds
      * them to EVERY stored list (the version 3 pattern), not only to recognized read-only profiles.
+     * Version 14, not 13: 13 is the upstream preset-provenance stamp shipped in release 2.21.1.
      */
-    private static final Set<String> STORED_PROFILE_V13_ADDITIONS = Set.of(
+    private static final Set<String> STORED_PROFILE_V14_ADDITIONS = Set.of(
         "workmate_chat_create", //$NON-NLS-1$
         "workmate_chat_send", //$NON-NLS-1$
         "workmate_chat_history", //$NON-NLS-1$
@@ -433,9 +434,9 @@ public class ToolSettingsServiceTest
     {
         assertTrue("the shipped default must disable the workmate_chat_* tools",
             ToolSettingsService.parseDisabledTools(PreferenceConstants.DEFAULT_DISABLED_TOOLS)
-                .containsAll(STORED_PROFILE_V13_ADDITIONS));
+                .containsAll(STORED_PROFILE_V14_ADDITIONS));
 
-        // A stored list at version 12 predates the chat tools; version 13 must add them to
+        // A stored list at version 12 predates the chat tools; version 14 must add them to
         // EVERY stored list, not only to recognized read-only profiles.
         PreferenceStore store = storedDisabledTools(Set.of("launch"), 12); //$NON-NLS-1$
 
@@ -443,19 +444,47 @@ public class ToolSettingsServiceTest
 
         Set<String> disabled = disabledTools(store);
         assertTrue("the upgrade must disable every workmate_chat_* tool: " + disabled,
-            disabled.containsAll(STORED_PROFILE_V13_ADDITIONS));
+            disabled.containsAll(STORED_PROFILE_V14_ADDITIONS));
         assertTrue("it must keep what the user chose: " + disabled,
             disabled.contains("launch")); //$NON-NLS-1$
         assertEquals(PreferenceConstants.TOOL_PREFS_MIGRATION_VERSION,
             store.getInt(PreferenceConstants.PREF_TOOL_PREFS_MIGRATION));
     }
 
+    /**
+     * The regression that made the chat migration version 14 and not 13: upstream shipped version
+     * 13 (the preset-provenance stamp) in release 2.21.1, so an installation that already recorded
+     * 13 must still gain the default-off chat tools. A migration numbered 13 would be skipped
+     * there, and the tools would read as ENABLED - the exact hazard the migration exists for.
+     */
     @Test
-    public void testVersion13DoesNotRerunWhenAStoreAlreadyCarriesTheChatTools()
+    public void testStoreAlreadyAtUpstreamVersion13StillGainsTheChatTools()
+    {
+        // Exactly what upstream 2.21.1 leaves behind: an explicit denylist and a recorded preset.
+        Set<String> stored = new HashSet<>(Set.of("git", "ask_workmate")); //$NON-NLS-1$ //$NON-NLS-2$
+        stored.add("launch"); //$NON-NLS-1$
+        PreferenceStore store = storedDisabledTools(stored, 13);
+        store.setValue(PreferenceConstants.PREF_TOOL_PRESET_ID, "custom"); //$NON-NLS-1$
+
+        ToolSettingsService.ensureMigratedForTest(store);
+
+        Set<String> disabled = disabledTools(store);
+        assertTrue("a store already at version 13 must still gain the chat tools: " + disabled, //$NON-NLS-1$
+            disabled.containsAll(STORED_PROFILE_V14_ADDITIONS));
+        assertTrue("it must keep what the user chose: " + disabled, //$NON-NLS-1$
+            disabled.contains("launch")); //$NON-NLS-1$
+        assertEquals(PreferenceConstants.TOOL_PREFS_MIGRATION_VERSION,
+            store.getInt(PreferenceConstants.PREF_TOOL_PREFS_MIGRATION));
+        assertEquals("the recorded provenance must survive the newer migration", //$NON-NLS-1$
+            "custom", store.getString(PreferenceConstants.PREF_TOOL_PRESET_ID)); //$NON-NLS-1$
+    }
+
+    @Test
+    public void testVersion14DoesNotRerunWhenAStoreAlreadyCarriesTheChatTools()
     {
         Set<String> stored = new HashSet<>(Set.of("launch")); //$NON-NLS-1$
-        stored.addAll(STORED_PROFILE_V13_ADDITIONS);
-        // The user deliberately re-enabled one chat tool after version 13; a later migration
+        stored.addAll(STORED_PROFILE_V14_ADDITIONS);
+        // The user deliberately re-enabled one chat tool after version 14; a later migration
         // round must not blanket-restore it.
         stored.remove("workmate_chat_list"); //$NON-NLS-1$
         PreferenceStore store = storedDisabledTools(stored,
@@ -722,13 +751,13 @@ public class ToolSettingsServiceTest
 
         // The version 5 rename is orthogonal to shape recognition and applies to any stored list,
         // so the expectation is the SAME selection spelled with the current tool name - not a free
-        // pass for version 4 to add anything. Version 13 legitimately adds the default-off
+        // pass for version 4 to add anything. Version 14 legitimately adds the default-off
         // workmate_chat_* tools to every stored list; the subject here is version 4, which must
         // add nothing beyond the rename.
         Set<String> expected = new HashSet<>(overlap);
         expected.remove("debug_launch"); //$NON-NLS-1$
         expected.add("launch"); //$NON-NLS-2$
-        expected.addAll(STORED_PROFILE_V13_ADDITIONS);
+        expected.addAll(STORED_PROFILE_V14_ADDITIONS);
         assertEquals(expected, disabledTools(store));
     }
 
@@ -1138,10 +1167,10 @@ public class ToolSettingsServiceTest
 
         ToolSettingsService.ensureMigratedForTest(store);
 
-        // Version 13 adds the default-off workmate_chat_* tools to every stored list; the
+        // Version 14 adds the default-off workmate_chat_* tools to every stored list; the
         // subject here is version 10, which must add nothing (not even debug_pause).
         Set<String> expected = new HashSet<>(Set.of("git", "ask_workmate")); //$NON-NLS-1$ //$NON-NLS-2$
-        expected.addAll(STORED_PROFILE_V13_ADDITIONS);
+        expected.addAll(STORED_PROFILE_V14_ADDITIONS);
         assertEquals(expected, disabledTools(store));
     }
 
@@ -1359,10 +1388,10 @@ public class ToolSettingsServiceTest
 
         ToolSettingsService.ensureMigratedForTest(store);
 
-        // Version 13 adds the default-off workmate_chat_* tools to every stored list; the
+        // Version 14 adds the default-off workmate_chat_* tools to every stored list; the
         // subject here is version 8, whose infobase_sessions must NOT be added to an all-tools
         // store.
-        assertEquals(STORED_PROFILE_V13_ADDITIONS, disabledTools(store));
+        assertEquals(STORED_PROFILE_V14_ADDITIONS, disabledTools(store));
     }
 
     @Test
@@ -1455,10 +1484,10 @@ public class ToolSettingsServiceTest
 
         ToolSettingsService.ensureMigratedForTest(store);
 
-        // Version 13 adds the default-off workmate_chat_* tools to every stored list; the
+        // Version 14 adds the default-off workmate_chat_* tools to every stored list; the
         // subject here is version 9, whose destructive tools must NOT be added to an all-tools
         // store.
-        assertEquals(STORED_PROFILE_V13_ADDITIONS, disabledTools(store));
+        assertEquals(STORED_PROFILE_V14_ADDITIONS, disabledTools(store));
     }
 
     @Test
@@ -1520,10 +1549,10 @@ public class ToolSettingsServiceTest
 
         ToolSettingsService.ensureMigratedForTest(store);
 
-        // Version 13 adds the default-off workmate_chat_* tools to every stored list; the
+        // Version 14 adds the default-off workmate_chat_* tools to every stored list; the
         // subject here is version 11, whose project importer must NOT be added to an all-tools
         // store.
-        assertEquals(STORED_PROFILE_V13_ADDITIONS, disabledTools(store));
+        assertEquals(STORED_PROFILE_V14_ADDITIONS, disabledTools(store));
     }
 
     @Test

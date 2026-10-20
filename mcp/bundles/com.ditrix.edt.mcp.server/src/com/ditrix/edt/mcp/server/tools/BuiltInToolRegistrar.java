@@ -97,6 +97,7 @@ import com.ditrix.edt.mcp.server.tools.impl.ResyncToDiskTool;
 import com.ditrix.edt.mcp.server.tools.impl.RevalidateObjectsTool;
 import com.ditrix.edt.mcp.server.tools.impl.RunYaxunitTestsTool;
 import com.ditrix.edt.mcp.server.tools.impl.SearchInCodeTool;
+import com.ditrix.edt.mcp.server.tools.impl.SearchInDcsTool;
 import com.ditrix.edt.mcp.server.tools.impl.SetBranchInfobaseTool;
 import com.ditrix.edt.mcp.server.tools.impl.SetBreakpointTool;
 import com.ditrix.edt.mcp.server.tools.impl.SetErrorBreakpointTool;
@@ -237,6 +238,7 @@ public final class BuiltInToolRegistrar
         catalogue.add(new GetModuleStructureTool());
         catalogue.add(new ListModulesTool());
         catalogue.add(new SearchInCodeTool());
+        catalogue.add(new SearchInDcsTool());
         catalogue.add(new ReadMethodSourceTool());
         catalogue.add(new GetMethodCallHierarchyTool());
         catalogue.add(new GetOutgoingStructuresTool());

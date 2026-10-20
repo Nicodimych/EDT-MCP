@@ -38,6 +38,9 @@
         "fqn": {
           "type": "string"
         },
+        "message": {
+          "type": "string"
+        },
         "objectBelonging": {
           "type": "string"
         },
@@ -379,7 +382,7 @@
       "openWorldHint": false,
       "readOnlyHint": false
     },
-    "description": "Prepare an infobase for an EDT project by creating a database or registering an existing one. Passing user/password/access STORES those credentials in EDT's infobase settings - the secret PERSISTS beyond this call and is reused by later connections. Parameters and examples: get_tool_guide('create_infobase').",
+    "description": "Create a file infobase or register an existing file/cluster infobase and bind it to an EDT project. EDT may open a Designer connection during binding when a runtime is installed. Passing user/password/access STORES those credentials in EDT's infobase settings - the secret PERSISTS beyond this call and is reused by later connections. Parameters and examples: get_tool_guide('create_infobase').",
     "inputSchema": {
       "properties": {
         "access": {
@@ -397,10 +400,18 @@
           "type": "string"
         },
         "infobaseFile": {
-          "description": "Absolute path to the infobase directory. FILE infobases only - server/web are rejected.",
+          "description": "Absolute file-infobase directory. Required unless infobaseServer + infobaseRef are given.",
           "type": "string"
         },
         "infobaseName": {
+          "type": "string"
+        },
+        "infobaseRef": {
+          "description": "Existing infobase name on infobaseServer. Server registration requires applicationKind='infobase'; web URLs and connection strings are not accepted.",
+          "type": "string"
+        },
+        "infobaseServer": {
+          "description": "Existing cluster address, e.g. localhost:1541. Requires infobaseRef and mode='register'; mutually exclusive with infobaseFile. Does not create a server database.",
           "type": "string"
         },
         "mode": {
@@ -428,8 +439,7 @@
         }
       },
       "required": [
-        "projectName",
-        "infobaseFile"
+        "projectName"
       ],
       "type": "object"
     },
@@ -460,6 +470,12 @@
         "infobaseName": {
           "type": "string"
         },
+        "infobaseRef": {
+          "type": "string"
+        },
+        "infobaseServer": {
+          "type": "string"
+        },
         "message": {
           "type": "string"
         },
@@ -467,6 +483,9 @@
           "type": "integer"
         },
         "project": {
+          "type": "string"
+        },
+        "registrationId": {
           "type": "string"
         },
         "success": {
@@ -615,7 +634,7 @@
           "type": "string"
         },
         "properties": {
-          "description": "Optional properties to apply at creation, as [{name, value, language?}]. For most kinds this applies 'synonym' (with optional 'language' code) and 'comment'; other property names are rejected (set them via modify_metadata). A FORM CONTENT member ('...Form.<F>.<Kind>.<Name>') takes a DIFFERENT vocabulary: 'title' (with optional 'language'), 'parent' (the group to nest a visual item under), 'dataPath' / 'attribute' (the bound attribute of a Field / Table), 'command' (a Button's command) and 'type' (a Group's kind). XDTO PACKAGE MEMBERS ('XDTOPackage.<Package>.ObjectType.<Name>' / '...Property.<Name>' / '...ObjectType.<Type>.Property.<Name>') use a DIFFERENT vocabulary instead: an ObjectType takes the optional boolean flags 'open' / 'abstract' / 'mixed' / 'ordered' / 'sequenced'; a Property REQUIRES 'type' (a built-in XSD type name like 'string', the EXACT name of an ObjectType already in the same package for a same-package reference, or an object {nsUri, name}) plus the optional 'lowerBound' / 'upperBound' (integers, ObjectType-nested properties only), 'nillable' / 'fixed' (booleans, 'fixed'=true needs a 'default') and 'default' (string). A PREDEFINED item ('...Predefined.<Item>') uses yet another vocabulary: 'description' / 'code' on every owner, 'isFolder' / 'parent' on a Catalog / ChartOfCharacteristicTypes (a ChartOfAccounts nests through 'parent' too; a ChartOfCalculationTypes takes neither), plus owner-specific properties - 'valueType' (alias 'type'; same {types:[...]} shape as an mdclass attribute's 'type') on a ChartOfCharacteristicTypes item; 'accountType' / 'offBalance' / 'order' / 'accountingFlags' / 'extDimensionTypes' on a ChartOfAccounts item; 'base' / 'displaced' / 'leading' / 'actionPeriodIsBase' on a ChartOfCalculationTypes item (see the guide for which apply to each owner).",
+          "description": "Optional properties to apply at creation, as [{name, value, language?}]. For most kinds this applies 'synonym' (with optional 'language' code) and 'comment'; other property names are rejected (set them via modify_metadata). Templates also accept 'templateType': TextDocument or SpreadsheetDocument (English or Russian). A FORM CONTENT member ('...Form.<F>.<Kind>.<Name>') takes a DIFFERENT vocabulary: 'title' (with optional 'language'), 'parent' (the group to nest a visual item under), 'dataPath' / 'attribute' (the bound attribute of a Field / Table), 'command' (a Button's command) and 'type' (a Group's kind). XDTO PACKAGE MEMBERS ('XDTOPackage.<Package>.ObjectType.<Name>' / '...Property.<Name>' / '...ObjectType.<Type>.Property.<Name>') use a DIFFERENT vocabulary instead: an ObjectType takes the optional boolean flags 'open' / 'abstract' / 'mixed' / 'ordered' / 'sequenced'; a Property REQUIRES 'type' (a built-in XSD type name like 'string', the EXACT name of an ObjectType already in the same package for a same-package reference, or an object {nsUri, name}) plus the optional 'lowerBound' / 'upperBound' (integers, ObjectType-nested properties only), 'nillable' / 'fixed' (booleans, 'fixed'=true needs a 'default') and 'default' (string). A PREDEFINED item ('...Predefined.<Item>') uses yet another vocabulary: 'description' / 'code' on every owner, 'isFolder' / 'parent' on a Catalog / ChartOfCharacteristicTypes (a ChartOfAccounts nests through 'parent' too; a ChartOfCalculationTypes takes neither), plus owner-specific properties - 'valueType' (alias 'type'; same {types:[...]} shape as an mdclass attribute's 'type') on a ChartOfCharacteristicTypes item; 'accountType' / 'offBalance' / 'order' / 'accountingFlags' / 'extDimensionTypes' on a ChartOfAccounts item; 'base' / 'displaced' / 'leading' / 'actionPeriodIsBase' on a ChartOfCalculationTypes item (see the guide for which apply to each owner).",
           "items": {
             "type": "object"
           },
@@ -843,6 +862,9 @@
         },
         "codestyle": {
           "type": "object"
+        },
+        "compatibilityMode": {
+          "type": "string"
         },
         "externalObject": {
           "type": "string"
@@ -1209,6 +1231,10 @@
         },
         "projectName": {
           "type": "string"
+        },
+        "registrationId": {
+          "description": "Explicit GLOBAL launcher-entry UUID returned by create_infobase. Requires exact infobaseName, deleteRegistration=true, deleteDatabaseFiles=false and no applicationId. Clears credentials before removal; never selects a registration by name alone. Repeat this same UUID on confirm.",
+          "type": "string"
         }
       },
       "required": [
@@ -1255,6 +1281,9 @@
           "type": "string"
         },
         "project": {
+          "type": "string"
+        },
+        "registrationId": {
           "type": "string"
         },
         "success": {
@@ -2993,9 +3022,22 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Retrieve detailed instructions for an MCP tool. Parameters and examples: get_tool_guide('get_tool_guide').",
+    "description": "Retrieve detailed instructions for an MCP tool. mode=summary lists sections; section=<heading|#anchor>; query=<text>.",
     "inputSchema": {
       "properties": {
+        "mode": {
+          "enum": [
+            "full",
+            "summary"
+          ],
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "section": {
+          "type": "string"
+        },
         "toolName": {
           "type": "string"
         }
@@ -3114,10 +3156,16 @@
       "openWorldHint": false,
       "readOnlyHint": false
     },
-    "description": "Create an EDT project from exported 1C configuration XML files. Parameters and examples: get_tool_guide('import_configuration_from_xml').",
+    "description": "Create an EDT project from exported 1C configuration XML files. Use platformVersion for the new project's runtime, derived from the dump by default (xmlVersion is a deprecated alias; conflicting values are refused). projectNature checks the dump kind and refuses mismatches. For extensions, pass baseProjectName; omit it for main configurations; optional for external objects. With a base, omit platformVersion and xmlVersion: the runtime is inherited. Parameters and examples: get_tool_guide('import_configuration_from_xml').",
     "inputSchema": {
       "properties": {
+        "baseProjectName": {
+          "type": "string"
+        },
         "importPath": {
+          "type": "string"
+        },
+        "platformVersion": {
           "type": "string"
         },
         "projectName": {
@@ -3778,7 +3826,7 @@
           "type": "object"
         },
         "template": {
-          "description": "SpreadsheetDocument (print form / макет) TEMPLATE FQN only: the spreadsheet content to author, instead of 'properties'. An object with any of: 'cells' [{row, col (both 0-based, required), text? OR parameter? (a print-time parameter name), bold?, fontSize?, hAlign? ('Left'/'Center'/'Right'/'Auto'/'Width'), vAlign? ('Top'/'Center'/'Bottom'), wrap? (true word-wraps the cell text), textOrientation? (rotation in the platform's own unit - TENTHS of a degree, 0..3600, so 90 degrees is 900), autoIndent? (0..100), autoMarkIncomplete?}]; 'merges' [{fromRow, fromCol, toRow, toCol}] merged cell ranges; 'areas' [{name, fromRow, fromCol, toRow, toCol}] named areas (for ПолучитьОбласть / Вывести output); 'columnWidths' [{col, width?, autoWidthCalculation?, widthWeightFactor? - the share of the free width, only alongside autoWidthCalculation:true}] and 'rowHeights' [{row, height}] column / row sizes. An omitted formatting key leaves that property UNSET (the cell inherits it). For textOrientation / autoIndent / autoMarkIncomplete / autoWidthCalculation / widthWeightFactor an explicit 0 / false overrides that inheritance and null counts as omitted; bold:false alone and wrap:false are the same as omitting them. Setting a cell overwrites that (row, col); the rest of the content is kept. Valid only for a SpreadsheetDocument template FQN; cannot be combined with 'properties' / 'content' / a Role payload.",
+          "description": "TEMPLATE FQN only: TextDocument takes {text, expectedHash?}; read text and contentHash with get_metadata_details before a guarded write. SpreadsheetDocument takes the content to author, instead of 'properties'. An object with any of: 'cells' [{row, col (both 0-based, required), text? OR parameter? (a print-time parameter name), bold?, fontSize?, hAlign? ('Left'/'Center'/'Right'/'Auto'/'Width'), vAlign? ('Top'/'Center'/'Bottom'), wrap? (true word-wraps the cell text), textOrientation? (rotation in the platform's own unit - TENTHS of a degree, 0..3600, so 90 degrees is 900), autoIndent? (0..100), autoMarkIncomplete?}]; 'merges' [{fromRow, fromCol, toRow, toCol}] merged cell ranges; 'areas' [{name, fromRow, fromCol, toRow, toCol}] named areas (for ПолучитьОбласть / Вывести output); 'columnWidths' [{col, width?, autoWidthCalculation?, widthWeightFactor? - the share of the free width, only alongside autoWidthCalculation:true}] and 'rowHeights' [{row, height}] column / row sizes. An omitted formatting key leaves that property UNSET (the cell inherits it). For textOrientation / autoIndent / autoMarkIncomplete / autoWidthCalculation / widthWeightFactor an explicit 0 / false overrides that inheritance and null counts as omitted; bold:false alone and wrap:false are the same as omitting them. Setting a cell overwrites that (row, col); the rest of the content is kept. Valid only for the matching template type; cannot be combined with 'properties' / 'content' / a Role payload.",
           "type": "object"
         },
         "templates": {
@@ -3815,6 +3863,12 @@
         },
         "destination": {
           "type": "string"
+        },
+        "excludedCommands": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "fqn": {
           "type": "string"
@@ -4398,6 +4452,54 @@
       "type": "object"
     },
     "name": "search_in_code",
+    "outputSchema": null
+  },
+  {
+    "annotations": {
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Literal/regex full-text search inside DCS schemas (*.dcs under src/); names the template FQN when the layout is recognised. Parameters and examples: get_tool_guide('search_in_dcs').",
+    "inputSchema": {
+      "properties": {
+        "caseSensitive": {
+          "type": "boolean"
+        },
+        "contextLines": {
+          "type": "integer"
+        },
+        "fileMask": {
+          "type": "string"
+        },
+        "isRegex": {
+          "type": "boolean"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "outputMode": {
+          "enum": [
+            "full",
+            "count",
+            "files"
+          ],
+          "type": "string"
+        },
+        "projectName": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectName",
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "search_in_dcs",
     "outputSchema": null
   },
   {

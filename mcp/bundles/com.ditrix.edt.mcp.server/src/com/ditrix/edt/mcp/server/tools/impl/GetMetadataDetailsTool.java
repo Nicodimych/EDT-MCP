@@ -38,6 +38,7 @@ import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
 import com._1c.g5.v8.dt.metadata.mdclass.PredefinedItem;
 import com._1c.g5.v8.dt.metadata.mdclass.Role;
 import com._1c.g5.v8.dt.metadata.mdclass.ScheduledJob;
+import com._1c.g5.v8.dt.metadata.mdclass.TemplateType;
 import com._1c.g5.v8.dt.metadata.mdclass.XDTOPackage;
 import com._1c.g5.v8.dt.xdto.model.Package;
 import com.ditrix.edt.mcp.server.Activator;
@@ -50,8 +51,11 @@ import com.ditrix.edt.mcp.server.tools.metadata.MetadataFormatterRegistry;
 import com.ditrix.edt.mcp.server.utils.BmTransactions;
 import com.ditrix.edt.mcp.server.utils.CommandInterfaceAddress;
 import com.ditrix.edt.mcp.server.utils.CommandInterfaceSupport;
+import com.ditrix.edt.mcp.server.utils.ConfigurationRoot;
 import com.ditrix.edt.mcp.server.utils.DcsStructureReader;
 import com.ditrix.edt.mcp.server.utils.ExtensionOriginUtils;
+import com.ditrix.edt.mcp.server.utils.ExcludedCommandsSupport;
+import com.ditrix.edt.mcp.server.utils.FieldListSupport;
 import com.ditrix.edt.mcp.server.utils.FormElementWriter;
 import com.ditrix.edt.mcp.server.utils.FormStructureReader;
 import com.ditrix.edt.mcp.server.utils.FormValidationException;
@@ -61,12 +65,15 @@ import com.ditrix.edt.mcp.server.utils.MetadataNodeResolver;
 import com.ditrix.edt.mcp.server.utils.MetadataPropertyIntrospector;
 import com.ditrix.edt.mcp.server.utils.MetadataScope;
 import com.ditrix.edt.mcp.server.utils.MetadataTypeUtils;
+import com.ditrix.edt.mcp.server.utils.Pagination;
 import com.ditrix.edt.mcp.server.utils.PredefinedWriter;
 import com.ditrix.edt.mcp.server.utils.ProjectContext;
 import com.ditrix.edt.mcp.server.utils.RoleRightsReader;
 import com.ditrix.edt.mcp.server.utils.SubsystemUtils;
+import com.ditrix.edt.mcp.server.utils.TemplateContentSupport;
 import com.ditrix.edt.mcp.server.utils.VendorSupportGuard;
 import com.ditrix.edt.mcp.server.utils.XdtoStructureReader;
+import com.ditrix.edt.mcp.server.utils.XdtoWriter;
 
 /**
  * Tool to get detailed properties of metadata objects from 1C configuration.
@@ -90,6 +97,11 @@ public class GetMetadataDetailsTool implements IMcpTool
     static final String MALFORMED_SUBSYSTEM_CHAIN = "Not a subsystem address. " //$NON-NLS-1$
         + SubsystemUtils.addressingHint();
 
+    /** Which tool reads the configuration root, and what this tool renders of it (issue #741). */
+    static final String ROOT_DETAILS_ROUTE = "the configuration root is read with " //$NON-NLS-1$
+        + "get_configuration_properties; pass assignable:true for the properties modify_metadata sets on '" //$NON-NLS-1$
+        + ConfigurationRoot.FQN + "'"; //$NON-NLS-1$
+
     @Override
     public String getName()
     {
@@ -111,7 +123,8 @@ public class GetMetadataDetailsTool implements IMcpTool
             .stringProperty(McpKeys.PROJECT_NAME,
                 "EDT project name (required)", true) //$NON-NLS-1$
             .stringArrayProperty("objectFqns", //$NON-NLS-1$
-                "Required. FQNs as Type.Name, e.g. ['Catalog.Products', 'Document.SalesOrder']; " + //$NON-NLS-1$
+                "Required. FQNs as Type.Name, e.g. ['Catalog.Products', 'Document.SalesOrder'], or " + //$NON-NLS-1$
+                "'Configuration' for the configuration root itself; " + //$NON-NLS-1$
                 "Russian type tokens also work (e.g. '\u0421\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A.Products').", //$NON-NLS-1$
                 true)
             .booleanProperty("full", //$NON-NLS-1$
@@ -126,7 +139,8 @@ public class GetMetadataDetailsTool implements IMcpTool
                 "per property its value kind, current value and ALLOWED values (enum literals). This " + //$NON-NLS-1$
                 "is what modify_metadata can set; FQNs may address managed-form roots " + //$NON-NLS-1$
                 "('Catalog.Products.Form.ItemForm' / 'CommonForm.Main') and members (e.g. " + //$NON-NLS-1$
-                "'Catalog.Products.Attribute.Weight'). For CommonForm.Main the mdclass properties " + //$NON-NLS-1$
+                "'Catalog.Products.Attribute.Weight'), and 'Configuration' the configuration root (only the " + //$NON-NLS-1$
+                "properties modify_metadata sets on it). For CommonForm.Main the mdclass properties " + //$NON-NLS-1$
                 "remain first and content-root properties are added in a labeled second section. " + //$NON-NLS-1$
                 "This mode does NOT cover a predefined item " + //$NON-NLS-1$
                 "('...Predefined.<Item>' is not resolvable in this mode - its settable surface is " + //$NON-NLS-1$
@@ -307,6 +321,15 @@ public class GetMetadataDetailsTool implements IMcpTool
             return;
         }
 
+        // The configuration ROOT (issue #741) is read with get_configuration_properties, and what
+        // modify_metadata sets on it renders with assignable=true; this view does not render it.
+        ConfigurationRoot.Resolution root = ConfigurationRoot.resolve(ctx.scope, fqn);
+        if (root != null)
+        {
+            failures.add(new String[] { fqn, root.error != null ? root.error : ROOT_DETAILS_ROUTE });
+            return;
+        }
+
         // A FQN that addresses a FORM ITSELF (Type.Object.Form.FormName or CommonForm.FormName)
         // renders the form's STRUCTURE (items / attributes / commands) via the cross-model hop
         // (FormStructureReader). Form MEMBERS use their own create/modify/delete FQNs; this branch
@@ -326,6 +349,14 @@ public class GetMetadataDetailsTool implements IMcpTool
             return;
         }
 
+        String textTemplate = renderTemplateTextIfApplicable(ctx.project, ctx.scope, ctx.bmModel, fqn);
+        if (textTemplate != null)
+        {
+            sb.append(textTemplate);
+            sb.append(SECTION_SEPARATOR);
+            return;
+        }
+
         // A FQN that addresses a TEMPLATE whose content is a DataCompositionSchema (a report's DCS
         // template, a common template, or an object-owned template - issue #267) renders the
         // schema's STRUCTURE (data sources / data sets / calculated fields / total fields /
@@ -333,9 +364,8 @@ public class GetMetadataDetailsTool implements IMcpTool
         // (DcsStructureReader), mirroring the FORM branch above. Resolved through the shared
         // MetadataNodeResolver (handles both the 2-part CommonTemplate FQN and the 4-part
         // owned-template FQN, bilingually - the same resolver TemplateScreenshotHelper uses), so
-        // this does not duplicate FQN navigation. A FQN that is not a template, or a template whose
-        // content is NOT a DataCompositionSchema (e.g. a SpreadsheetDocument print form), falls
-        // through UNCHANGED to the generic object-resolution path below.
+        // this does not duplicate FQN navigation. Other templates fall through: a common template
+        // renders its own basic info; an owned template is refused by the member-address check below.
         String dcsStructure = renderTemplateDcsIfApplicable(ctx.scope, ctx.bmModel, fqn, ctx.effectiveLanguage);
         if (dcsStructure != null)
         {
@@ -393,6 +423,14 @@ public class GetMetadataDetailsTool implements IMcpTool
         if (nestedChain == null && isMalformedSubsystemChain(fqn) && !ctx.scope.isExternalObjects())
         {
             failures.add(new String[] { fqn, MALFORMED_SUBSYSTEM_CHAIN });
+            return;
+        }
+        // Only the special views above may consume a deeper address. The generic resolver reads
+        // Type.Name only, so otherwise it would render the owner even for a missing member (#731).
+        String normalizedFqn = MetadataTypeUtils.normalizeFqn(fqn);
+        if (nestedChain == null && normalizedFqn.split("\\.", -1).length > 2) //$NON-NLS-1$
+        {
+            failures.add(new String[] { fqn, memberAddressReason(ctx.scope, normalizedFqn) });
             return;
         }
         MdObject mdObject = nestedChain != null ? SubsystemUtils.resolveInScope(ctx.scope, nestedChain)
@@ -513,6 +551,20 @@ public class GetMetadataDetailsTool implements IMcpTool
      */
     private void appendAssignableView(String fqn, StringBuilder sb, List<String[]> failures, RenderContext ctx)
     {
+        // The configuration ROOT (issue #741): its own address, never the generic resolver's, which
+        // has no root to offer (and must not: it backs delete, rename, adopt and reference targets).
+        ConfigurationRoot.Resolution root = ConfigurationRoot.resolve(ctx.scope, fqn);
+        if (root != null)
+        {
+            if (root.error != null)
+            {
+                failures.add(new String[] { fqn, root.error });
+                return;
+            }
+            sb.append(formatConfigurationRootAssignable((Configuration)root.node.object));
+            sb.append(SECTION_SEPARATOR);
+            return;
+        }
         String normFqn = MetadataTypeUtils.normalizeFqn(fqn);
         // A four-part owned-form ROOT has no mdclass node at that address. Resolve it through the
         // form seams before the mdclass resolver and render the editable form:Form object's own
@@ -860,13 +912,32 @@ public class GetMetadataDetailsTool implements IMcpTool
         return formatAssignableSection("## Form content root assignable properties: ", fqn, obj); //$NON-NLS-1$
     }
 
+    /**
+     * Renders the configuration ROOT's assignable section (issue #741) under its canonical address: the
+     * shared table, which for a {@link Configuration} lists only the properties {@code modify_metadata}
+     * sets on the root, then the sentence that says what else reads the root - no more than
+     * {@code get_configuration_properties} renders (its name, behaviour settings and languages, not every
+     * other property).
+     *
+     * @param config the project's own configuration
+     * @return the Markdown section
+     */
+    static String formatConfigurationRootAssignable(Configuration config)
+    {
+        return formatAssignable(ConfigurationRoot.FQN, config) + "\nOnly these properties of the " //$NON-NLS-1$
+            + "configuration root are settable; get_configuration_properties also reads its name, behaviour " //$NON-NLS-1$
+            + "settings and languages.\n"; //$NON-NLS-1$
+    }
+
     /** Shared table body; callers supply the heading that identifies the represented surface. */
     private static String formatAssignableSection(String heading, String fqn, EObject obj)
     {
         StringBuilder sb = new StringBuilder();
         sb.append(heading).append(fqn).append("\n\n"); //$NON-NLS-1$
         sb.append("Set these with `modify_metadata`. For an ENUM property the value must be one of " //$NON-NLS-1$
-            + "the listed Allowed values.\n\n"); //$NON-NLS-1$
+            + "the listed Allowed values; a FIELD_LIST property takes a JSON array of the listed field " //$NON-NLS-1$
+            + "addresses (at most " + FieldListSupport.MAX_LISTED + " are listed, then the rest is " //$NON-NLS-1$ //$NON-NLS-2$
+            + "counted).\n\n"); //$NON-NLS-1$
         sb.append(MarkdownUtils.tableHeader("Property", "Kind", "Current", "Allowed values")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
         // A form element additionally exposes the assignable properties nested in its <extInfo> (e.g. a
         // UsualGroup's group / united layout props). When it carries a LIVE extInfo instance (the common
@@ -891,13 +962,26 @@ public class GetMetadataDetailsTool implements IMcpTool
         {
             props = MetadataPropertyIntrospector.introspect(obj, extInfoEClass);
         }
+        else if (obj instanceof Configuration)
+        {
+            // The configuration root offers only what modify_metadata sets on it (issue #741), and its
+            // collections - every top object of the configuration - are never read for the table.
+            props = MetadataPropertyIntrospector.introspectOnly(obj, ConfigurationRoot::isSettable);
+        }
         else
         {
             props = MetadataPropertyIntrospector.introspect(obj);
         }
         for (MetadataPropertyIntrospector.PropertyInfo p : props)
         {
-            String allowed = p.allowedValues.isEmpty() ? null : String.join(", ", p.allowedValues); //$NON-NLS-1$
+            // A field list offers every lockable field of the object for data locking - several KB on an
+            // ERP-size document - so its Allowed cell is bounded (issue #740), as are form commands.
+            String allowed = p.allowedValues.isEmpty() ? null
+                : p.valueKind == MetadataPropertyIntrospector.ValueKind.FIELD_LIST
+                    ? Pagination.boundedListing(p.allowedValues, FieldListSupport.MAX_LISTED)
+                    : p.valueKind == MetadataPropertyIntrospector.ValueKind.EXCLUDED_COMMANDS
+                        ? Pagination.boundedListing(p.allowedValues, ExcludedCommandsSupport.MAX_LISTED)
+                        : String.join(", ", p.allowedValues); //$NON-NLS-1$
             sb.append(MarkdownUtils.tableRow(p.name, p.valueKind.toString(), p.currentValue, allowed));
         }
         return sb.toString();
@@ -1208,6 +1292,34 @@ public class GetMetadataDetailsTool implements IMcpTool
         });
     }
 
+    /** Read the file-backed text under a BM boundary, without changing the model or the file. */
+    private static String renderTemplateTextIfApplicable(IProject project, MetadataScope scope,
+        IBmModel bmModel, String fqn)
+    {
+        if (bmModel == null)
+        {
+            return null;
+        }
+        MetadataNodeResolver.MetadataNode node = MetadataNodeResolver.resolveExisting(scope, fqn);
+        if (node == null || !(node.object instanceof BasicTemplate) || !(node.object instanceof IBmObject))
+        {
+            return null;
+        }
+        long templateId = ((IBmObject)node.object).bmGetId();
+        return BmTransactions.executeAndRollback(bmModel, "GetMetadataDetailsTextTemplate", (tx, monitor) ->
+        {
+            Object object = tx.getObjectById(templateId);
+            if (!(object instanceof BasicTemplate)
+                || ((BasicTemplate)object).getTemplateType() != TemplateType.TEXT_DOCUMENT)
+            {
+                return null;
+            }
+            BasicTemplate template = (BasicTemplate)object;
+            String text = TemplateContentSupport.readText(TemplateContentSupport.contentFile(project, template));
+            return TemplateContentSupport.renderText(MetadataTypeUtils.normalizeFqn(fqn), text);
+        });
+    }
+
     /**
      * Renders a template's Data Composition Schema STRUCTURE for a template FQN whose content is a
      * {@link DataCompositionSchema} (issue #267): resolves the FQN to its {@link BasicTemplate} via the
@@ -1228,8 +1340,8 @@ public class GetMetadataDetailsTool implements IMcpTool
      * @return the rendered Markdown, or {@code null} when the FQN does not resolve to a template, the BM
      *         model is unavailable, or the resolved template's content is NOT a
      *         {@link DataCompositionSchema} (a {@code null} content, a {@code SpreadsheetDocument} print
-     *         form, etc.) - {@code null} means "not applicable here", NOT a failure: the caller falls
-     *         through to the generic object-resolution render.
+     *         form, etc.) - {@code null} means "not applicable here": the caller checks for a member
+     *         address before the generic object-resolution render.
      */
     private static String renderTemplateDcsIfApplicable(MetadataScope scope, IBmModel bmModel, String fqn,
         String language)
@@ -1482,6 +1594,50 @@ public class GetMetadataDetailsTool implements IMcpTool
         return scope.findObject(mdType, mdName);
     }
 
+    /** Explains an unhandled deeper address without silently substituting its owner. */
+    private String memberAddressReason(MetadataScope scope, String normalizedFqn)
+    {
+        // The shared parsers discard trailing empty segments; these do not name an existing member.
+        if (normalizedFqn.endsWith(".")) //$NON-NLS-1$
+        {
+            return describeResolutionFailure(normalizedFqn, scope);
+        }
+        // Exact resolution only: the routes this text points to (assignable: true, the owner's
+        // Type.Name, the package view) resolve exactly, so a yo/ye-only match must not be called existing.
+        XdtoWriter.MemberRef xdtoRef = XdtoWriter.parseMemberRef(normalizedFqn);
+        if (xdtoRef != null && MetadataNodeResolver.resolveAddress(scope, xdtoRef.packageFqn, false) != null)
+        {
+            // XDTO content is not an MdObject and has no assignable view. Parsing its address does
+            // not establish that the member exists; the package's content view is where to check.
+            return "This is an XDTO member address; read package '" + xdtoRef.packageFqn //$NON-NLS-1$
+                + "' to inspect its content."; //$NON-NLS-1$
+        }
+        MdObject member = MetadataNodeResolver.isValidArity(normalizedFqn.split("\\.", -1).length) //$NON-NLS-1$
+            ? MetadataNodeResolver.resolveAddress(scope, normalizedFqn, false) : null;
+        if (member instanceof BasicTemplate && isRenderedTemplateType(((BasicTemplate)member).getTemplateType()))
+        {
+            // A text or DCS template has its own plain view; it only lands here when that view could
+            // not read the content (the BM model is not available yet), so the call is worth retrying.
+            return "This template's content could not be read right now (the project model is not ready); " //$NON-NLS-1$
+                + "retry the same call once the project is ready."; //$NON-NLS-1$
+        }
+        if (member != null)
+        {
+            String[] parts = normalizedFqn.split("\\.", 3); //$NON-NLS-1$
+            String ownerFqn = parts[0] + "." + parts[1]; //$NON-NLS-1$
+            return "This addresses a member of '" + ownerFqn //$NON-NLS-1$
+                + "'; read its properties with assignable: true. The owner's details render from '" //$NON-NLS-1$
+                + ownerFqn + "'."; //$NON-NLS-1$
+        }
+        return describeResolutionFailure(normalizedFqn, scope);
+    }
+
+    /** Template types the plain view renders itself (text and Data Composition Schema). */
+    private static boolean isRenderedTemplateType(TemplateType type)
+    {
+        return type == TemplateType.TEXT_DOCUMENT || type == TemplateType.DATA_COMPOSITION_SCHEMA;
+    }
+
     /**
      * Whether {@code fqn} starts with a subsystem type token and goes on past {@code Subsystem.<Name>}
      * without being a whole chain of subsystems - a chain cut short ({@code Subsystem.Sales.Subsystem})
@@ -1529,7 +1685,8 @@ public class GetMetadataDetailsTool implements IMcpTool
         String[] parts = fqn.split("\\."); //$NON-NLS-1$
         if (parts.length < 2)
         {
-            return "Invalid FQN. Expected format: Type.Name (e.g. Catalog.Products)"; //$NON-NLS-1$
+            return "Invalid FQN. Expected format: Type.Name (e.g. Catalog.Products); the configuration " //$NON-NLS-1$
+                + "root itself is '" + ConfigurationRoot.FQN + "'"; //$NON-NLS-1$ //$NON-NLS-2$
         }
         String hint = scope == null ? "" : scope.addressingHint(fqn); //$NON-NLS-1$
         return "Object not found - use get_metadata_objects to list valid FQNs" + hint; //$NON-NLS-1$
